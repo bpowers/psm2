@@ -17,18 +17,21 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <wordexp.h>
+#include <sched.h>
 
 #include "utf.h"
 
 #include "config.h"
 
+int n_cpu;
 bool show_heap;
 char *filter;
 char *argv0;
 
 
 static void die(const char *, ...);
+static void usage(void);
+static char **list_pids(void);
 
 void
 die(const char *fmt, ...)
@@ -40,6 +43,12 @@ die(const char *fmt, ...)
 	va_end(args);
 
 	exit(EXIT_FAILURE);
+}
+
+char **
+list_pids(void)
+{
+
 }
 
 void
@@ -55,6 +64,8 @@ int
 main(int argc, char *const argv[])
 {
 	int err;
+	cpu_set_t n_cpu_set;
+	char **pids;
 
 	for (argv0 = argv[0], argv++, argc--; argc > 0; argv++, argc--) {
 		char const* arg = argv[0];
@@ -75,7 +86,12 @@ main(int argc, char *const argv[])
 		die("%s requires root privileges. (try 'sudo `which %s`)\n",
 		    argv0, argv0);
 
-	err = 0;
+	err = sched_getaffinity(0, sizeof(n_cpu_set), &n_cpu_set);
+	n_cpu = err ? 1 : CPU_COUNT(&n_cpu_set);
 
-	return err;
+	pids = list_pids();
+	if (!pids)
+		die("list_pids failed.");
+
+	return 0;
 }
