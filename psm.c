@@ -10,18 +10,18 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <ftw.h>
 #include <libgen.h>
+#include <sched.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <sched.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 
 #include "utf.h"
 
@@ -219,8 +219,8 @@ usage(void)
 int
 main(int argc, char *const argv[])
 {
-	int err;
-	cpu_set_t n_cpu_set;
+	//int err;
+	//cpu_set_t n_cpu_set;
 	int *pids;
 
 	for (argv0 = argv[0], argv++, argc--; argc > 0; argv++, argc--) {
@@ -245,8 +245,10 @@ main(int argc, char *const argv[])
 		*/
 	}
 
+	/*
 	err = sched_getaffinity(0, sizeof(n_cpu_set), &n_cpu_set);
 	n_cpu = err ? 1 : CPU_COUNT(&n_cpu_set);
+	*/
 
 	pids = list_pids();
 	if (!pids)

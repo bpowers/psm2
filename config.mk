@@ -12,7 +12,7 @@ INCS := -Ilibutf
 LIBS := libutf/libutf.a
 
 CPPFLAGS = -DVERSION=\"${VERSION}\" -D_DEFAULT_SOURCE -D_BSD_SOURCE -D_XOPEN_SOURCE=600
-CFLAGS += -g -std=c99 -O0 ${WARNFLAGS} ${INCS} ${CPPFLAGS}
-LDFLAGS += -g ${LIBS}
+CFLAGS += -g -std=c99 -Os -flto ${WARNFLAGS} ${INCS} ${CPPFLAGS}
+LDFLAGS += -g ${LIBS} -static
 
-CC ?= cc
+CC = /usr/local/musl/bin/musl-gcc
