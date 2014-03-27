@@ -28,6 +28,7 @@
 #include "config.h"
 
 #define COMM_MAX 16
+#define CMD_DISPLAY_MAX 32
 
 int n_cpu;
 char *filter;
@@ -335,17 +336,6 @@ main(int argc, char *const argv[])
 
 	}
 
-	qsort(agg, uniq, sizeof(MemInfo*), cmp_meminfop_pss);
-	for (int i = 0; i < uniq; i++) {
-		//MemInfo *c = agg[i];
-		
-	}
-	free(agg);
-
-	for (int i = 0; i < n; i++)
-		free_meminfo(meminfo[i]);
-	free(meminfo);
-
 	if (show_heap) {
 		tot_fmt = "#%9.1f%30.1f\tTOTAL USED BY PROCESSES\n";
 		printf("%10s%10s%10s%10s\t%s\n", "MB RAM", "SHARED", "HEAP", "SWAPPED", "PROCESS (COUNT)");
@@ -353,6 +343,39 @@ main(int argc, char *const argv[])
 		tot_fmt = "#%9.1f%20.1f\tTOTAL USED BY PROCESSES\n";
 		printf("%10s%10s%10s\t%s\n", "MB RAM", "SHARED", "SWAPPED", "PROCESS (COUNT)");
 	}
+
+	qsort(agg, uniq, sizeof(MemInfo*), cmp_meminfop_pss);
+	for (int i = 0; i < uniq; i++) {
+		char sbuf[16];
+		MemInfo *c = agg[i];
+		char *n = c->name;
+		float pss;
+		if (strlen(n) > CMD_DISPLAY_MAX) {
+			if (n[0] == '[' && strchr(n, ']'))
+				strchr(n, ']')[1] = '\0';
+			else
+				n[CMD_DISPLAY_MAX] = '\0';
+		}
+		sbuf[0] = '\0';
+		if (c->swapped > 0) {
+			float swap = c->swapped / 1024.;
+			tot_swap += swap;
+			snprintf(sbuf, sizeof(sbuf), "%10.1f", swap);
+		}
+		pss = c->pss / 1024.;
+		tot_pss += pss;
+		if (show_heap)
+			printf("%10.1f%10.1f%10.1f%10s\t%s (%d)\n", pss,
+			       c->shared/1024., c->heap/1024., sbuf, n, c->npids);
+		else
+			printf("%10.1f%10.1f%10s\t%s (%d)\n", pss,
+			       c->shared/1024., sbuf, n, c->npids);
+	}
+	free(agg);
+
+	for (int i = 0; i < n; i++)
+		free_meminfo(meminfo[i]);
+	free(meminfo);
 
 	printf(tot_fmt, tot_pss, tot_swap);
 	fflush(stdout);
