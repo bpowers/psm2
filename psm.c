@@ -180,6 +180,15 @@ error:
 int
 proc_mem(MemInfo *mi, int pid)
 {
+	int fd;
+	char path[32];
+	snprintf(path, sizeof(path), "/proc/%d/smaps", pid);
+
+	fd = open(path, O_RDONLY);
+	if (fd < 0)
+		return -1;
+
+	close(fd);
 	return 0;
 }
 
