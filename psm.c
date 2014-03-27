@@ -8,6 +8,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <ftw.h>
 #include <libgen.h>
@@ -18,6 +19,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <sched.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "utf.h"
 
@@ -31,7 +35,7 @@ char *argv0;
 
 static void die(const char *, ...);
 static void usage(void);
-static char **list_pids(void);
+static int *list_pids(void);
 
 void
 die(const char *fmt, ...)
@@ -45,10 +49,41 @@ die(const char *fmt, ...)
 	exit(EXIT_FAILURE);
 }
 
-char **
+int *
 list_pids(void)
 {
+	DIR *proc;
+	int nproc;
+	size_t n;
+	struct dirent *de;
+	int *pids;
 
+	proc = opendir("/proc");
+	nproc = 0;
+	n = 0;
+
+	while ((de = readdir(proc))) {
+		if (isdigit(de->d_name[0]))
+			nproc++;
+	}
+	rewinddir(proc);
+
+	pids = calloc(nproc+1, sizeof(int));
+
+	while ((de = readdir(proc))) {
+		if (!isdigit(de->d_name[0]))
+			continue;
+		// between the original readdir and now, the contents
+		// of /proc could have changed.  If there are
+		// additional processes, make sure we don't overwrite
+		// our buffer.
+		if (nproc-- == 0)
+			break;
+		pids[n++] = atoi(de->d_name);
+	}
+
+	closedir(proc);
+	return pids;
 }
 
 void
@@ -63,9 +98,9 @@ usage(void)
 int
 main(int argc, char *const argv[])
 {
-	int err;
+	int err, procfd;
 	cpu_set_t n_cpu_set;
-	char **pids;
+	int *pids;
 
 	for (argv0 = argv[0], argv++, argc--; argc > 0; argv++, argc--) {
 		char const* arg = argv[0];
@@ -82,16 +117,28 @@ main(int argc, char *const argv[])
 		}
 	}
 
-	if (geteuid() != 0)
+	if (geteuid() != 0) {
+		/*
 		die("%s requires root privileges. (try 'sudo `which %s`)\n",
 		    argv0, argv0);
+		*/
+	}
 
 	err = sched_getaffinity(0, sizeof(n_cpu_set), &n_cpu_set);
 	n_cpu = err ? 1 : CPU_COUNT(&n_cpu_set);
 
 	pids = list_pids();
 	if (!pids)
-		die("list_pids failed.");
+		die("list_pids failed\n");
+
+	procfd = open("/proc", O_DIRECTORY | O_CLOEXEC);
+	if (!procfd)
+		die("couldn't open /proc\n");
+
+	for (int *pid = pids; *pid; pid++) {
+	}
+
+	close(procfd);
 
 	return 0;
 }
