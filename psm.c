@@ -30,7 +30,6 @@
 #define COMM_MAX 16
 
 int n_cpu;
-bool show_heap;
 char *filter;
 char *argv0;
 
@@ -43,15 +42,22 @@ typedef struct {
 	float swapped;
 } MemInfo;
 
+typedef struct {
+	int count;
+	int *list;
+} PIDList;
+
 static void die(const char *, ...);
-static MemInfo *meminfo(int);
+static MemInfo *new_meminfo(int);
 static void free_meminfo(MemInfo *);
 static int proc_name(MemInfo *, int);
 static int proc_mem(MemInfo *, int);
 static int proc_cmdline(int, char *buf, size_t len);
 static char *_readlink(char *);
 static void usage(void);
-static int *list_pids(void);
+static int cmp_meminfop_name(const void *, const void *);
+static int cmp_meminfop_pss(const void *, const void *);
+static PIDList list_pids(void);
 
 void
 die(const char *fmt, ...)
@@ -70,7 +76,7 @@ _readlink(char *path)
 {
 	for (int len=64;; len*=2) {
 		char *b = malloc(len);
-		ssize_t n = readlink(path, b, len-1);
+		ssize_t n = readlink(path, b, len);
 		if (n == -1) {
 			free(b);
 			return NULL;
@@ -84,10 +90,12 @@ _readlink(char *path)
 }
 
 MemInfo *
-meminfo(int pid)
+new_meminfo(int pid)
 {
 	int err;
 	MemInfo *mi = calloc(sizeof(MemInfo), 1);
+	mi->npids = 1;
+
 	err = proc_name(mi, pid);
 	if (err) goto error;
 
@@ -97,6 +105,7 @@ meminfo(int pid)
 	return mi;
 error:
 	free_meminfo(mi);
+	mi = NULL;
 	return NULL;
 }
 
@@ -112,14 +121,15 @@ int
 proc_name(MemInfo *mi, int pid)
 {
 	int n;
-	char path[32], buf[BUFSIZ];
+	char path[32], buf[BUFSIZ], shortbuf[COMM_MAX+1];
 	snprintf(path, sizeof(path), "/proc/%d/exe", pid);
 
 	char *p = _readlink(path);
 	// we can't read the exe in 2 cases: the process has exited,
-	// or it refers to a kernel thread
+	// or it refers to a kernel thread.  Either way, we don't want
+	// to gather info on it.
 	if (!p)
-		return 0;
+		return -1;
 
 	n = proc_cmdline(pid, buf, BUFSIZ);
 	if (n <= 0) {
@@ -127,10 +137,12 @@ proc_name(MemInfo *mi, int pid)
 		return -1;
 	}
 
-	if (strlen(buf) > COMM_MAX)
-		buf[COMM_MAX] = '\0';
-	if (strcmp(p, buf) >= 0)
-		mi->name = NULL;//strdup(basename(p));
+	if (strlen(buf) > COMM_MAX) {
+		strncpy(shortbuf, buf, COMM_MAX);
+		shortbuf[COMM_MAX] = '\0';
+	}
+	if (strcmp(p, shortbuf) >= 0)
+		mi->name = strdup(basename(p));
 	else
 		mi->name = strdup(buf);
 	free(p);
@@ -170,14 +182,16 @@ proc_mem(MemInfo *mi, int pid)
 	return 0;
 }
 
-int *
+PIDList
 list_pids(void)
 {
 	DIR *proc;
 	int nproc;
 	size_t n;
 	struct dirent *de;
-	int *pids;
+	PIDList pids;
+
+	memset(&pids, 0, sizeof(pids));
 
 	proc = opendir("/proc");
 	nproc = 0;
@@ -189,7 +203,8 @@ list_pids(void)
 	}
 	rewinddir(proc);
 
-	pids = calloc(nproc+1, sizeof(int));
+	pids.count = nproc;
+	pids.list = calloc(nproc+1, sizeof(int));
 
 	while ((de = readdir(proc))) {
 		if (!isdigit(de->d_name[0]))
@@ -200,11 +215,31 @@ list_pids(void)
 		// our buffer.
 		if (nproc-- == 0)
 			break;
-		pids[n++] = atoi(de->d_name);
+		pids.list[n++] = atoi(de->d_name);
 	}
 
 	closedir(proc);
 	return pids;
+}
+
+int
+cmp_meminfop_name(const void *a_in, const void *b_in)
+{
+	const MemInfo *a = *(MemInfo *const *)a_in;
+	const MemInfo *b = *(MemInfo *const *)b_in;
+	return strcmp(a->name, b->name);
+}
+
+int
+cmp_meminfop_pss(const void *a_in, const void *b_in)
+{
+	const MemInfo *a = *(MemInfo *const *)a_in;
+	const MemInfo *b = *(MemInfo *const *)b_in;
+	if (a->pss < b->pss)
+		return -1;
+	else if (a->pss > b->pss)
+		return 1;
+	return strcmp(a->name, b->name);
 }
 
 void
@@ -219,9 +254,18 @@ usage(void)
 int
 main(int argc, char *const argv[])
 {
+	size_t tot_pss, tot_swap;
+	int n, uniq, next;
 	//int err;
 	//cpu_set_t n_cpu_set;
-	int *pids;
+	PIDList pids;
+	MemInfo **meminfo, **agg;
+	const char *tot_fmt;
+	bool show_heap;
+
+	tot_pss = 0;
+	tot_swap = 0;
+	show_heap = false;
 
 	for (argv0 = argv[0], argv++, argc--; argc > 0; argv++, argc--) {
 		char const* arg = argv[0];
@@ -239,10 +283,8 @@ main(int argc, char *const argv[])
 	}
 
 	if (geteuid() != 0) {
-		/*
 		die("%s requires root privileges. (try 'sudo `which %s`)\n",
 		    argv0, argv0);
-		*/
 	}
 
 	/*
@@ -251,14 +293,69 @@ main(int argc, char *const argv[])
 	*/
 
 	pids = list_pids();
-	if (!pids)
+	if (!pids.count)
 		die("list_pids failed\n");
 
-	for (int *pid = pids; *pid; pid++) {
-		MemInfo *mi = meminfo(*pid);
-		free_meminfo(mi);
+	meminfo = calloc(sizeof(MemInfo*), pids.count);
+	n = 0;
+	for (int *pid = pids.list; *pid; pid++) {
+		MemInfo *mi = new_meminfo(*pid);
+		if (mi)
+			meminfo[n++] = mi;
 	}
-	free(pids);
+	free(pids.list);
+	pids.list = NULL;
+
+	// n is potentially smaller than pids.count, so free any
+	// unused space
+	//meminfo = realloc(meminfo, n*sizeof(MemInfo*));
+
+	qsort(meminfo, n, sizeof(MemInfo*), cmp_meminfop_name);
+
+	uniq = 0;
+	for (int i = 0; i < n; i++) {
+		if (i == 0 || strcmp(meminfo[i-1]->name, meminfo[i]->name) != 0)
+			uniq++;
+	}
+
+	agg = calloc(sizeof(MemInfo*), uniq);
+	next = 0;
+
+	for (int i = 0; i < n; i++) {
+		if (i == 0 || strcmp(meminfo[i-1]->name, meminfo[i]->name) != 0) {
+			agg[next++] = meminfo[i];
+		} else {
+			MemInfo *curr = agg[next-1];
+			curr->npids++;
+			curr->pss += meminfo[i]->pss;
+			curr->shared += meminfo[i]->shared;
+			curr->heap += meminfo[i]->heap;
+			curr->swapped += meminfo[i]->swapped;
+		}
+
+	}
+
+	qsort(agg, uniq, sizeof(MemInfo*), cmp_meminfop_pss);
+	for (int i = 0; i < uniq; i++) {
+		//MemInfo *c = agg[i];
+		
+	}
+	free(agg);
+
+	for (int i = 0; i < n; i++)
+		free_meminfo(meminfo[i]);
+	free(meminfo);
+
+	if (show_heap) {
+		tot_fmt = "#%9.1f%30.1f\tTOTAL USED BY PROCESSES\n";
+		printf("%10s%10s%10s%10s\t%s\n", "MB RAM", "SHARED", "HEAP", "SWAPPED", "PROCESS (COUNT)");
+	} else {
+		tot_fmt = "#%9.1f%20.1f\tTOTAL USED BY PROCESSES\n";
+		printf("%10s%10s%10s\t%s\n", "MB RAM", "SHARED", "SWAPPED", "PROCESS (COUNT)");
+	}
+
+	printf(tot_fmt, tot_pss, tot_swap);
+	fflush(stdout);
 
 	return 0;
 }
