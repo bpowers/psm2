@@ -33,22 +33,19 @@
 // from ps_mem - average error due to truncation in the kernel pss
 // calculations
 #define PSS_ADJUST .5
+#define MAP_DETAIL_LEN sizeof("Size:                  4 kB")
+#define LINE_BUF_SIZE 256
 
-#define DETAIL_LEN sizeof("Size:                  4 kB")
+#define TY_VM_FLAGS      "VmFlags:"
+#define TY_PSS           "Pss:"
+#define TY_SWAP          "Swap:"
+#define TY_PRIVATE_CLEAN "Private_Clean:"
+#define TY_PRIVATE_DIRTY "Private_Dirty:"
 
-#define DEFAULT_BUF_SIZE PAGE_SIZE
-#define DEFAULT_LINE_SIZE 128
+#define OFF_NAME 73
 
-int n_cpu;
 char *filter;
 char *argv0;
-
-typedef struct {
-	char *buf;
-	char *line;
-	int fd;
-	int pos;
-} BufReader;
 
 typedef struct {
 	int npids;
@@ -56,7 +53,7 @@ typedef struct {
 	float pss;
 	float shared;
 	float heap;
-	float swapped;
+	float swap;
 } MemInfo;
 
 typedef struct {
@@ -65,10 +62,6 @@ typedef struct {
 } PIDList;
 
 static void die(const char *, ...);
-
-static BufReader *bufreader_new(int);
-static void bufreader_free(BufReader *);
-static char *bufreader_readline(BufReader *);
 
 static MemInfo *meminfo_new(int);
 static void meminfo_free(MemInfo *);
@@ -96,45 +89,6 @@ die(const char *fmt, ...)
 	va_end(args);
 
 	exit(EXIT_FAILURE);
-}
-
-BufReader *
-bufreader_new(int fd)
-{
-	BufReader *br = calloc(sizeof(BufReader), 1);
-	if (!br)
-		return NULL;
-
-	br->buf = calloc(sizeof(char), DEFAULT_BUF_SIZE);
-	if (!br->buf)
-		goto error;
-	br->line = calloc(sizeof(char), DEFAULT_LINE_SIZE);
-	if (!br->line)
-		goto error;
-	br->fd = fd;
-
-	return br;
-error:
-	bufreader_free(br);
-	return NULL;
-}
-
-void
-bufreader_free(BufReader *br)
-{
-	if (!br)
-		return;
-	if (br->buf)
-		free(br->buf);
-	if (br->line)
-		free(br->line);
-	free(br);
-}
-
-char *
-bufreader_readline(BufReader *br)
-{
-	return NULL;
 }
 
 char *
@@ -245,26 +199,65 @@ error:
 int
 proc_mem(MemInfo *mi, int pid)
 {
-	int fd;
-	BufReader *br;
+	float priv;
+	FILE *f;
+	char *curr;
 	char path[32];
 	snprintf(path, sizeof(path), "/proc/%d/smaps", pid);
 
-	fd = open(path, O_RDONLY);
-	if (fd < 0)
+	priv = 0;
+	curr = NULL;
+
+	f = fopen(path, "r");
+	if (!f)
 		return -1;
 
-	br = bufreader_new(fd);
-	if (!br)
-		goto error;
+	while (true) {
+		char line[LINE_BUF_SIZE], *ok, *ty, *rest;
+		size_t len;
+		float m;
 
-	bufreader_free(br);
-	close(fd);
+		ok = fgets(line, LINE_BUF_SIZE, f);
+		if (!ok)
+			break;
+
+		len = strlen(line);
+		if (len != MAP_DETAIL_LEN) {
+			if (strcmp(line, TY_VM_FLAGS) < 0) {
+				if (curr) {
+					free(curr);
+					curr = NULL;
+				}
+				if (len > OFF_NAME) {
+					curr = strdup(&line[OFF_NAME]);
+					*strchr(curr, '\n') = '\0';
+				}
+			}
+			if (!len)
+				break;
+			continue;
+		}
+
+		rest = line;
+		ty = strsep(&rest, " ");
+		if (strcmp(ty, TY_PSS) == 0) {
+			m = atoi(rest);
+			mi->pss += m + PSS_ADJUST;
+			// we don't need PSS_ADJUST for heap because
+			// the heap is private and anonymous.
+			if (curr && strcmp(curr, "[heap]") == 0)
+				mi->heap = m;
+		} else if (strcmp(ty, TY_PRIVATE_CLEAN) == 0 || strcmp(ty, TY_PRIVATE_DIRTY) == 0) {
+			priv += atoi(rest);
+		} else if (strcmp(ty, TY_SWAP) == 0) {
+			mi->swap += atoi(rest);
+		}
+	}
+	mi->shared = mi->pss - priv;
+
+	free(curr);
+	fclose(f);
 	return 0;
-error:
-	bufreader_free(br);
-	close(fd);
-	return -1;
 }
 
 PIDList
@@ -339,10 +332,8 @@ usage(void)
 int
 main(int argc, char *const argv[])
 {
-	size_t tot_pss, tot_swap;
+	float tot_pss, tot_swap;
 	int n, nuniq, next;
-	//int err;
-	//cpu_set_t n_cpu_set;
 	PIDList pids;
 	MemInfo **cmds, **cmd_sums;
 	const char *tot_fmt;
@@ -371,11 +362,6 @@ main(int argc, char *const argv[])
 		die("%s requires root privileges. (try 'sudo `which %s`)\n",
 		    argv0, argv0);
 	}
-
-	/*
-	err = sched_getaffinity(0, sizeof(n_cpu_set), &n_cpu_set);
-	n_cpu = err ? 1 : CPU_COUNT(&n_cpu_set);
-	*/
 
 	pids = list_pids();
 	if (!pids.count)
@@ -416,7 +402,7 @@ main(int argc, char *const argv[])
 			sum->pss += curr->pss;
 			sum->shared += curr->shared;
 			sum->heap += curr->heap;
-			sum->swapped += curr->swapped;
+			sum->swap += curr->swap;
 		}
 	}
 
@@ -441,8 +427,8 @@ main(int argc, char *const argv[])
 				n[CMD_DISPLAY_MAX] = '\0';
 		}
 		sbuf[0] = '\0';
-		if (c->swapped > 0) {
-			float swap = c->swapped / 1024.;
+		if (c->swap > 0) {
+			float swap = c->swap / 1024.;
 			tot_swap += swap;
 			snprintf(sbuf, sizeof(sbuf), "%10.1f", swap);
 		}
