@@ -37,6 +37,7 @@
 #define DETAIL_LEN sizeof("Size:                  4 kB")
 
 #define DEFAULT_BUF_SIZE PAGE_SIZE
+#define DEFAULT_LINE_SIZE 128
 
 int n_cpu;
 char *filter;
@@ -44,8 +45,9 @@ char *argv0;
 
 typedef struct {
 	char *buf;
+	char *line;
 	int fd;
-	int r;
+	int pos;
 } BufReader;
 
 typedef struct {
@@ -63,6 +65,10 @@ typedef struct {
 } PIDList;
 
 static void die(const char *, ...);
+
+static BufReader *bufreader_new(int);
+static void bufreader_free(BufReader *);
+static char *bufreader_readline(BufReader *);
 
 static MemInfo *meminfo_new(int);
 static void meminfo_free(MemInfo *);
@@ -90,6 +96,45 @@ die(const char *fmt, ...)
 	va_end(args);
 
 	exit(EXIT_FAILURE);
+}
+
+BufReader *
+bufreader_new(int fd)
+{
+	BufReader *br = calloc(sizeof(BufReader), 1);
+	if (!br)
+		return NULL;
+
+	br->buf = calloc(sizeof(char), DEFAULT_BUF_SIZE);
+	if (!br->buf)
+		goto error;
+	br->line = calloc(sizeof(char), DEFAULT_LINE_SIZE);
+	if (!br->line)
+		goto error;
+	br->fd = fd;
+
+	return br;
+error:
+	bufreader_free(br);
+	return NULL;
+}
+
+void
+bufreader_free(BufReader *br)
+{
+	if (!br)
+		return;
+	if (br->buf)
+		free(br->buf);
+	if (br->line)
+		free(br->line);
+	free(br);
+}
+
+char *
+bufreader_readline(BufReader *br)
+{
+	return NULL;
 }
 
 char *
@@ -201,6 +246,7 @@ int
 proc_mem(MemInfo *mi, int pid)
 {
 	int fd;
+	BufReader *br;
 	char path[32];
 	snprintf(path, sizeof(path), "/proc/%d/smaps", pid);
 
@@ -208,8 +254,17 @@ proc_mem(MemInfo *mi, int pid)
 	if (fd < 0)
 		return -1;
 
+	br = bufreader_new(fd);
+	if (!br)
+		goto error;
+
+	bufreader_free(br);
 	close(fd);
 	return 0;
+error:
+	bufreader_free(br);
+	close(fd);
+	return -1;
 }
 
 PIDList
