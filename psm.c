@@ -157,10 +157,9 @@ proc_name(MemInfo *mi, int pid)
 		return -1;
 	}
 
-	if (strlen(buf) > COMM_MAX) {
-		strncpy(shortbuf, buf, COMM_MAX);
-		shortbuf[COMM_MAX] = '\0';
-	}
+	strncpy(shortbuf, buf, COMM_MAX);
+	shortbuf[COMM_MAX] = '\0';
+
 	if (strcmp(p, shortbuf) >= 0)
 		mi->name = strdup(basename(p));
 	else
