@@ -33,20 +33,14 @@
 // from ps_mem - average error due to truncation in the kernel pss
 // calculations
 #define PSS_ADJUST .5
-#define MAP_DETAIL_LEN sizeof("Size:                  4 kB")
-#define LINE_BUF_SIZE 256
+#define MAP_DETAIL_LEN sizeof("Size:                  4 kB")-1
+#define MAP_DETAIL_OFF 16
+#define SMAP_DETAILS_LEN 392
+#define LINE_BUF_SIZE 400
 
 #define TY_VM_FLAGS      "VmFlags:"
-#define TY_PSS           "Pss:"
-#define TY_SWAP          "Swap:"
-#define TY_PRIVATE_CLEAN "Private_Clean:"
-#define TY_PRIVATE_DIRTY "Private_Dirty:"
-
 #define LEN_VM_FLAGS      sizeof(TY_VM_FLAGS)-1
-#define LEN_PSS           sizeof(TY_PSS)-1
-#define LEN_SWAP          sizeof(TY_SWAP)-1
-#define LEN_PRIVATE_CLEAN sizeof(TY_PRIVATE_CLEAN)-1
-#define LEN_PRIVATE_DIRTY sizeof(TY_PRIVATE_DIRTY)-1
+
 
 #define OFF_NAME 73
 
@@ -206,7 +200,6 @@ proc_mem(MemInfo *mi, int pid)
 {
 	float priv;
 	FILE *f;
-	bool is_heap = false;
 	char path[32];
 	snprintf(path, sizeof(path), "/proc/%d/smaps", pid);
 
@@ -217,37 +210,52 @@ proc_mem(MemInfo *mi, int pid)
 		return -1;
 
 	while (true) {
-		char line[LINE_BUF_SIZE], *ok, *rest;
 		size_t len;
 		float m;
+		bool is_heap = false;
+		char *ok;
+		char line[LINE_BUF_SIZE];
 
 		ok = fgets(line, LINE_BUF_SIZE, f);
 		if (!ok)
 			break;
 
+		// first line is VMA info - if not anonymous, the name
+		// of the file/section is at offset OFF_NAME (73)
 		len = strlen(line);
-		if (len != MAP_DETAIL_LEN) {
-			if (len > OFF_NAME)
-				is_heap = strncmp(&line[OFF_NAME], "[heap]", 6) == 0;
-			if (!len)
-				break;
-			continue;
-		}
+		if (len > OFF_NAME)
+			is_heap = strncmp(&line[OFF_NAME], "[heap]", 6) == 0;
+		if (!len)
+			break;
 
-		rest = &line[16];
-		if (strncmp(line, TY_PSS, LEN_PSS) == 0) {
-			m = atoi(rest);
-			mi->pss += m + PSS_ADJUST;
-			// we don't need PSS_ADJUST for heap because
-			// the heap is private and anonymous.
-			if (is_heap)
-				mi->heap += m;
-		} else if (strncmp(line, TY_PRIVATE_CLEAN, LEN_PRIVATE_CLEAN) == 0 ||
-			   strncmp(line, TY_PRIVATE_DIRTY, LEN_PRIVATE_DIRTY) == 0) {
-			priv += atoi(rest);
-		} else if (strncmp(line, TY_SWAP, LEN_SWAP) == 0) {
-			mi->swap += atoi(rest);
-		}
+		len = fread(line, 1, SMAP_DETAILS_LEN, f);
+		if (len != SMAP_DETAILS_LEN)
+			die("couldn't read details (%zu != %zu) - out of sync?",
+			    len, SMAP_DETAILS_LEN);
+		line[SMAP_DETAILS_LEN] = '\0';
+
+		// Pss - line 3
+		m = atoi(&line[2*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
+		mi->pss += m + PSS_ADJUST;
+		// we don't need PSS_ADJUST for heap because
+		// the heap is private and anonymous.
+		if (is_heap)
+			mi->heap += m;
+
+		// Private_Clean & Private_Dirty are lines 6 and 7
+		priv += atoi(&line[5*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
+		priv += atoi(&line[6*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
+
+		mi->swap += atoi(&line[10*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
+
+		// after the constant-sized smap details, there is an
+		// optional Nonlinear line, followed by the final
+		// VmFlags line.
+		do {
+			ok = fgets(line, LINE_BUF_SIZE, f);
+			if (!ok)
+				break;
+		} while (strncmp(line, TY_VM_FLAGS, LEN_VM_FLAGS) != 0);
 	}
 	mi->shared = mi->pss - priv;
 
