@@ -42,6 +42,12 @@
 #define TY_PRIVATE_CLEAN "Private_Clean:"
 #define TY_PRIVATE_DIRTY "Private_Dirty:"
 
+#define LEN_VM_FLAGS      sizeof(TY_VM_FLAGS)-1
+#define LEN_PSS           sizeof(TY_PSS)-1
+#define LEN_SWAP          sizeof(TY_SWAP)-1
+#define LEN_PRIVATE_CLEAN sizeof(TY_PRIVATE_CLEAN)-1
+#define LEN_PRIVATE_DIRTY sizeof(TY_PRIVATE_DIRTY)-1
+
 #define OFF_NAME 73
 
 char *filter;
@@ -222,14 +228,14 @@ proc_mem(MemInfo *mi, int pid)
 
 		len = strlen(line);
 		if (len != MAP_DETAIL_LEN) {
-			if (strcmp(line, TY_VM_FLAGS) < 0) {
+			if (strncmp(line, TY_VM_FLAGS, LEN_VM_FLAGS) != 0) {
 				if (curr) {
 					free(curr);
 					curr = NULL;
 				}
 				if (len > OFF_NAME) {
+					line[len-1] = '\0';
 					curr = strdup(&line[OFF_NAME]);
-					*strchr(curr, '\n') = '\0';
 				}
 			}
 			if (!len)
@@ -238,17 +244,17 @@ proc_mem(MemInfo *mi, int pid)
 		}
 
 		rest = &line[16];
-		if (strncmp(line, TY_PSS, sizeof(TY_PSS)-1) == 0) {
+		if (strncmp(line, TY_PSS, LEN_PSS) == 0) {
 			m = atoi(rest);
 			mi->pss += m + PSS_ADJUST;
 			// we don't need PSS_ADJUST for heap because
 			// the heap is private and anonymous.
 			if (curr && strcmp(curr, "[heap]") == 0)
 				mi->heap = m;
-		} else if (strncmp(line, TY_PRIVATE_CLEAN, sizeof(TY_PRIVATE_CLEAN)-1) == 0 ||
-			   strncmp(line, TY_PRIVATE_DIRTY, sizeof(TY_PRIVATE_DIRTY)-1) == 0) {
+		} else if (strncmp(line, TY_PRIVATE_CLEAN, LEN_PRIVATE_CLEAN) == 0 ||
+			   strncmp(line, TY_PRIVATE_DIRTY, LEN_PRIVATE_DIRTY) == 0) {
 			priv += atoi(rest);
-		} else if (strncmp(line, TY_SWAP, sizeof(TY_SWAP)-1) == 0) {
+		} else if (strncmp(line, TY_SWAP, LEN_SWAP) == 0) {
 			mi->swap += atoi(rest);
 		}
 	}
