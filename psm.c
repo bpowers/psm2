@@ -23,8 +23,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "utf.h"
-
 #include "config.h"
 
 #define COMM_MAX 16
