@@ -212,7 +212,7 @@ proc_mem(MemInfo *mi, int pid)
 		return -1;
 
 	while (true) {
-		char line[LINE_BUF_SIZE], *ok, *ty, *rest;
+		char line[LINE_BUF_SIZE], *ok, *rest;
 		size_t len;
 		float m;
 
@@ -237,18 +237,18 @@ proc_mem(MemInfo *mi, int pid)
 			continue;
 		}
 
-		rest = line;
-		ty = strsep(&rest, " ");
-		if (strcmp(ty, TY_PSS) == 0) {
+		rest = &line[16];
+		if (strncmp(line, TY_PSS, sizeof(TY_PSS)-1) == 0) {
 			m = atoi(rest);
 			mi->pss += m + PSS_ADJUST;
 			// we don't need PSS_ADJUST for heap because
 			// the heap is private and anonymous.
 			if (curr && strcmp(curr, "[heap]") == 0)
 				mi->heap = m;
-		} else if (strcmp(ty, TY_PRIVATE_CLEAN) == 0 || strcmp(ty, TY_PRIVATE_DIRTY) == 0) {
+		} else if (strncmp(line, TY_PRIVATE_CLEAN, sizeof(TY_PRIVATE_CLEAN)-1) == 0 ||
+			   strncmp(line, TY_PRIVATE_DIRTY, sizeof(TY_PRIVATE_DIRTY)-1) == 0) {
 			priv += atoi(rest);
-		} else if (strcmp(ty, TY_SWAP) == 0) {
+		} else if (strncmp(line, TY_SWAP, sizeof(TY_SWAP)-1) == 0) {
 			mi->swap += atoi(rest);
 		}
 	}
