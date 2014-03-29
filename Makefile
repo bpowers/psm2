@@ -15,14 +15,9 @@ config.h:
 
 ${OBJ}: config.h config.mk
 
-$(EXE): libutf/libutf.a ${OBJ}
+$(EXE): ${OBJ}
 	@echo "  LD    $@"
 	@${CC} -o $@ ${OBJ} ${LDFLAGS}
-
-libutf/libutf.a:
-	@git submodule init
-	@git submodule update
-	@${MAKE} -C libutf
 
 clean:
 	rm -f $(EXE) ${OBJ}
