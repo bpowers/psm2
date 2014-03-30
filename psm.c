@@ -50,7 +50,7 @@ typedef struct {
 	float shared;
 	float heap;
 	float swap;
-} MemInfo;
+} CmdInfo;
 
 typedef struct {
 	int count;
@@ -59,18 +59,18 @@ typedef struct {
 
 static void die(const char *, ...);
 
-static MemInfo *meminfo_new(int);
-static void meminfo_free(MemInfo *);
+static CmdInfo *cmdinfo_new(int);
+static void cmdinfo_free(CmdInfo *);
 
-static int proc_name(MemInfo *, int);
-static int proc_mem(MemInfo *, int);
+static int proc_name(CmdInfo *, int);
+static int proc_mem(CmdInfo *, int);
 static int proc_cmdline(int, char *buf, size_t len);
 static char *_readlink(char *);
 
 static void usage(void);
 
-static int cmp_meminfop_name(const void *, const void *);
-static int cmp_meminfop_pss(const void *, const void *);
+static int cmp_cmdinfop_name(const void *, const void *);
+static int cmp_cmdinfop_pss(const void *, const void *);
 
 static PIDList list_pids(void);
 
@@ -108,11 +108,11 @@ _readlink(char *path)
 	}
 }
 
-MemInfo *
-meminfo_new(int pid)
+CmdInfo *
+cmdinfo_new(int pid)
 {
 	int err;
-	MemInfo *mi = calloc(sizeof(MemInfo), 1);
+	CmdInfo *mi = calloc(sizeof(CmdInfo), 1);
 	mi->npids = 1;
 
 	err = proc_name(mi, pid);
@@ -123,13 +123,13 @@ meminfo_new(int pid)
 
 	return mi;
 error:
-	meminfo_free(mi);
+	cmdinfo_free(mi);
 	mi = NULL;
 	return NULL;
 }
 
 void
-meminfo_free(MemInfo *mi)
+cmdinfo_free(CmdInfo *mi)
 {
 	if (mi && mi->name)
 		free(mi->name);
@@ -137,7 +137,7 @@ meminfo_free(MemInfo *mi)
 }
 
 int
-proc_name(MemInfo *mi, int pid)
+proc_name(CmdInfo *mi, int pid)
 {
 	int n;
 	char path[32], buf[BUFSIZ], shortbuf[COMM_MAX+1];
@@ -195,7 +195,7 @@ error:
 }
 
 int
-proc_mem(MemInfo *mi, int pid)
+proc_mem(CmdInfo *mi, int pid)
 {
 	float priv;
 	FILE *f;
@@ -303,18 +303,18 @@ list_pids(void)
 }
 
 int
-cmp_meminfop_name(const void *a_in, const void *b_in)
+cmp_cmdinfop_name(const void *a_in, const void *b_in)
 {
-	const MemInfo *a = *(MemInfo *const *)a_in;
-	const MemInfo *b = *(MemInfo *const *)b_in;
+	const CmdInfo *a = *(CmdInfo *const *)a_in;
+	const CmdInfo *b = *(CmdInfo *const *)b_in;
 	return strcmp(a->name, b->name);
 }
 
 int
-cmp_meminfop_pss(const void *a_in, const void *b_in)
+cmp_cmdinfop_pss(const void *a_in, const void *b_in)
 {
-	const MemInfo *a = *(MemInfo *const *)a_in;
-	const MemInfo *b = *(MemInfo *const *)b_in;
+	const CmdInfo *a = *(CmdInfo *const *)a_in;
+	const CmdInfo *b = *(CmdInfo *const *)b_in;
 	if (a->pss < b->pss)
 		return -1;
 	else if (a->pss > b->pss)
@@ -337,7 +337,7 @@ main(int argc, char *const argv[])
 	float tot_pss, tot_swap;
 	int n, nuniq, next;
 	PIDList pids;
-	MemInfo **cmds, **cmd_sums;
+	CmdInfo **cmds, **cmd_sums;
 	char *filter;
 	const char *tot_fmt;
 	bool show_heap;
@@ -373,10 +373,10 @@ main(int argc, char *const argv[])
 	if (!pids.count)
 		die("list_pids failed\n");
 
-	cmds = calloc(sizeof(MemInfo*), pids.count);
+	cmds = calloc(sizeof(CmdInfo*), pids.count);
 	n = 0;
 	for (int *pid = pids.list; *pid; pid++) {
-		MemInfo *mi = meminfo_new(*pid);
+		CmdInfo *mi = cmdinfo_new(*pid);
 		if (mi)
 			cmds[n++] = mi;
 	}
@@ -385,9 +385,9 @@ main(int argc, char *const argv[])
 
 	// n is potentially smaller than pids.count, so free any
 	// unused space
-	cmds = realloc(cmds, n*sizeof(MemInfo*));
+	cmds = realloc(cmds, n*sizeof(CmdInfo*));
 
-	qsort(cmds, n, sizeof(MemInfo*), cmp_meminfop_name);
+	qsort(cmds, n, sizeof(CmdInfo*), cmp_cmdinfop_name);
 
 	nuniq = 0;
 	for (int i = 0; i < n; i++) {
@@ -395,15 +395,15 @@ main(int argc, char *const argv[])
 			nuniq++;
 	}
 
-	cmd_sums = calloc(sizeof(MemInfo*), nuniq);
+	cmd_sums = calloc(sizeof(CmdInfo*), nuniq);
 	next = 0;
 
 	for (int i = 0; i < n; i++) {
 		if (i == 0 || strcmp(cmds[i-1]->name, cmds[i]->name) != 0) {
 			cmd_sums[next++] = cmds[i];
 		} else {
-			MemInfo *curr = cmds[i];
-			MemInfo *sum = cmd_sums[next-1];
+			CmdInfo *curr = cmds[i];
+			CmdInfo *sum = cmd_sums[next-1];
 			sum->npids++;
 			sum->pss += curr->pss;
 			sum->shared += curr->shared;
@@ -420,10 +420,10 @@ main(int argc, char *const argv[])
 		printf("%10s%10s%10s\t%s\n", "MB RAM", "SHARED", "SWAPPED", "PROCESS (COUNT)");
 	}
 
-	qsort(cmd_sums, nuniq, sizeof(MemInfo*), cmp_meminfop_pss);
+	qsort(cmd_sums, nuniq, sizeof(CmdInfo*), cmp_cmdinfop_pss);
 	for (int i = 0; i < nuniq; i++) {
 		char sbuf[16];
-		MemInfo *c = cmd_sums[i];
+		CmdInfo *c = cmd_sums[i];
 		char *n = c->name;
 		float pss;
 
@@ -456,7 +456,7 @@ main(int argc, char *const argv[])
 	free(filter);
 
 	for (int i = 0; i < n; i++)
-		meminfo_free(cmds[i]);
+		cmdinfo_free(cmds[i]);
 	free(cmds);
 
 	printf(tot_fmt, tot_pss, tot_swap);
