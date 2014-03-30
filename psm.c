@@ -41,7 +41,6 @@
 
 #define OFF_NAME 73
 
-char *argv0;
 
 typedef struct {
 	int npids;
@@ -52,10 +51,6 @@ typedef struct {
 	float swap;
 } CmdInfo;
 
-typedef struct {
-	int count;
-	int *list;
-} PIDList;
 
 static void die(const char *, ...);
 
@@ -72,7 +67,10 @@ static void usage(void);
 static int cmp_cmdinfop_name(const void *, const void *);
 static int cmp_cmdinfop_pss(const void *, const void *);
 
-static PIDList list_pids(void);
+static ssize_t list_pids(int **);
+
+
+static char *argv0;
 
 
 void
@@ -262,29 +260,36 @@ proc_mem(CmdInfo *mi, int pid)
 	return 0;
 }
 
-PIDList
-list_pids(void)
+ssize_t
+list_pids(int **result)
 {
 	DIR *proc;
-	int nproc;
-	size_t n;
+	ssize_t count, n;
 	struct dirent *de;
-	PIDList pids;
+	int *pids;
 
-	memset(&pids, 0, sizeof(pids));
-
-	proc = opendir("/proc");
-	nproc = 0;
+	pids = NULL;
+	count = 0;
 	n = 0;
 
+	proc = opendir("/proc");
+	if (!proc)
+		return -1;
+
+	// we loop through the dirents twice, so that we can count
+	// them the first time through and allocate a minimally-sized
+	// buffer to store the pids in.
 	while ((de = readdir(proc))) {
 		if (isdigit(de->d_name[0]))
-			nproc++;
+			count++;
 	}
 	rewinddir(proc);
 
-	pids.count = nproc;
-	pids.list = calloc(nproc+1, sizeof(int));
+	pids = calloc(count+1, sizeof(int));
+	if (!pids) {
+		closedir(proc);
+		return -1;
+	}
 
 	while ((de = readdir(proc))) {
 		if (!isdigit(de->d_name[0]))
@@ -293,13 +298,15 @@ list_pids(void)
 		// of /proc could have changed.  If there are
 		// additional processes, make sure we don't overwrite
 		// our buffer.
-		if (nproc-- == 0)
+		if (count-- == 0)
 			break;
-		pids.list[n++] = atoi(de->d_name);
+		pids[n++] = atoi(de->d_name);
 	}
 
 	closedir(proc);
-	return pids;
+
+	*result = pids;
+	return n;
 }
 
 int
@@ -336,7 +343,8 @@ main(int argc, char *const argv[])
 {
 	float tot_pss, tot_swap;
 	int n, nuniq, next;
-	PIDList pids;
+	ssize_t proc_count;
+	int *pids;
 	CmdInfo **cmds, **cmd_sums;
 	char *filter;
 	const char *tot_fmt;
@@ -369,19 +377,19 @@ main(int argc, char *const argv[])
 		    argv0, argv0);
 	}
 
-	pids = list_pids();
-	if (!pids.count)
+	proc_count = list_pids(&pids);
+	if (proc_count < 0)
 		die("list_pids failed\n");
 
-	cmds = calloc(sizeof(CmdInfo*), pids.count);
+	cmds = calloc(sizeof(CmdInfo*), proc_count);
 	n = 0;
-	for (int *pid = pids.list; *pid; pid++) {
+	for (int *pid = pids; *pid; pid++) {
 		CmdInfo *mi = cmdinfo_new(*pid);
 		if (mi)
 			cmds[n++] = mi;
 	}
-	free(pids.list);
-	pids.list = NULL;
+	free(pids);
+	pids = NULL;
 
 	// n is potentially smaller than pids.count, so free any
 	// unused space
