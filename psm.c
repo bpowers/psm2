@@ -63,6 +63,7 @@ static int proc_cmdline(int, char *buf, size_t len);
 static char *_readlink(char *);
 
 static void usage(void);
+static void print_results(CmdInfo **, size_t, bool, char *);
 
 static int cmp_cmdinfop_name(const void *, const void *);
 static int cmp_cmdinfop_pss(const void *, const void *);
@@ -330,6 +331,60 @@ cmp_cmdinfop_pss(const void *a_in, const void *b_in)
 }
 
 void
+print_results(CmdInfo **cmds, size_t count, bool show_heap, char *filter)
+{
+	float tot_pss, tot_swap;
+	const char *tot_fmt;
+
+	tot_pss = 0;
+	tot_swap = 0;
+
+	if (show_heap) {
+		tot_fmt = "#%9.1f%30.1f\tTOTAL USED BY PROCESSES\n";
+		printf("%10s%10s%10s%10s\t%s\n", "MB RAM", "SHARED",
+		       "HEAP", "SWAPPED", "PROCESS (COUNT)");
+	} else {
+		tot_fmt = "#%9.1f%20.1f\tTOTAL USED BY PROCESSES\n";
+		printf("%10s%10s%10s\t%s\n", "MB RAM", "SHARED",
+		       "SWAPPED", "PROCESS (COUNT)");
+	}
+
+	for (size_t i = 0; i < count; i++) {
+		char sbuf[16];
+		CmdInfo *c = cmds[i];
+		char *n = c->name;
+		float pss;
+
+		if (filter && !strstr(n, filter))
+			continue;
+
+		if (strlen(n) > CMD_DISPLAY_MAX) {
+			if (n[0] == '[' && strchr(n, ']'))
+				strchr(n, ']')[1] = '\0';
+			else
+				n[CMD_DISPLAY_MAX] = '\0';
+		}
+		sbuf[0] = '\0';
+		if (c->swap > 0) {
+			float swap = c->swap / 1024.;
+			tot_swap += swap;
+			snprintf(sbuf, sizeof(sbuf), "%10.1f", swap);
+		}
+		pss = c->pss / 1024.;
+		tot_pss += pss;
+		if (show_heap)
+			printf("%10.1f%10.1f%10.1f%10s\t%s (%d)\n", pss,
+			       c->shared/1024., c->heap/1024., sbuf, n, c->npids);
+		else
+			printf("%10.1f%10.1f%10s\t%s (%d)\n", pss,
+			       c->shared/1024., sbuf, n, c->npids);
+	}
+
+	printf(tot_fmt, tot_pss, tot_swap);
+	fflush(stdout);
+}
+
+void
 usage(void)
 {
 	die("Usage: %s [OPTION...]\n" \
@@ -343,17 +398,13 @@ usage(void)
 int
 main(int argc, char *const argv[])
 {
-	float tot_pss, tot_swap;
 	int n, nuniq, next;
 	ssize_t proc_count;
 	int *pids;
 	CmdInfo **cmds, **cmd_sums;
 	char *filter;
-	const char *tot_fmt;
 	bool show_heap;
 
-	tot_pss = 0;
-	tot_swap = 0;
 	show_heap = false;
 	filter = NULL;
 
@@ -422,55 +473,16 @@ main(int argc, char *const argv[])
 		}
 	}
 
-	if (show_heap) {
-		tot_fmt = "#%9.1f%30.1f\tTOTAL USED BY PROCESSES\n";
-		printf("%10s%10s%10s%10s\t%s\n", "MB RAM", "SHARED", "HEAP", "SWAPPED", "PROCESS (COUNT)");
-	} else {
-		tot_fmt = "#%9.1f%20.1f\tTOTAL USED BY PROCESSES\n";
-		printf("%10s%10s%10s\t%s\n", "MB RAM", "SHARED", "SWAPPED", "PROCESS (COUNT)");
-	}
-
 	qsort(cmd_sums, nuniq, sizeof(CmdInfo*), cmp_cmdinfop_pss);
-	for (int i = 0; i < nuniq; i++) {
-		char sbuf[16];
-		CmdInfo *c = cmd_sums[i];
-		char *n = c->name;
-		float pss;
 
-		if (filter && !strstr(n, filter))
-			continue;
+	print_results(cmd_sums, nuniq, show_heap, filter);
 
-		if (strlen(n) > CMD_DISPLAY_MAX) {
-			if (n[0] == '[' && strchr(n, ']'))
-				strchr(n, ']')[1] = '\0';
-			else
-				n[CMD_DISPLAY_MAX] = '\0';
-		}
-		sbuf[0] = '\0';
-		if (c->swap > 0) {
-			float swap = c->swap / 1024.;
-			tot_swap += swap;
-			snprintf(sbuf, sizeof(sbuf), "%10.1f", swap);
-		}
-		pss = c->pss / 1024.;
-		tot_pss += pss;
-		if (show_heap)
-			printf("%10.1f%10.1f%10.1f%10s\t%s (%d)\n", pss,
-			       c->shared/1024., c->heap/1024., sbuf, n, c->npids);
-		else
-			printf("%10.1f%10.1f%10s\t%s (%d)\n", pss,
-			       c->shared/1024., sbuf, n, c->npids);
-	}
 	free(cmd_sums);
-
 	free(filter);
 
 	for (int i = 0; i < n; i++)
 		cmdinfo_free(cmds[i]);
 	free(cmds);
-
-	printf(tot_fmt, tot_pss, tot_swap);
-	fflush(stdout);
 
 	return 0;
 }
