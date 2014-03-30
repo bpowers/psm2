@@ -335,7 +335,9 @@ usage(void)
 	die("Usage: %s [OPTION...]\n" \
 	    "Simple, accurate RAM and swap reporting.\n\n" \
 	    "Options:\n" \
-	    "  -heap:\tshow heap column\n", argv0);
+	    "  -heap:\tshow heap column\n" \
+	    "  -filter='':\tsimple filter to test process names against\n",
+	    argv0);
 }
 
 int
