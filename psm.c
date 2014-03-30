@@ -30,19 +30,17 @@
 #define PAGE_SIZE 4096
 // from ps_mem - average error due to truncation in the kernel pss
 // calculations
-#define PSS_ADJUST .5
-#define MAP_DETAIL_LEN sizeof("Size:                  4 kB")-1
-#define MAP_DETAIL_OFF 16
+#define PSS_ADJUST       .5
+#define MAP_DETAIL_LEN   sizeof("Size:                  4 kB")-1
+#define MAP_DETAIL_OFF   16
 #define SMAP_DETAILS_LEN 392
-#define LINE_BUF_SIZE 400
+#define LINE_BUF_SIZE    SMAP_DETAILS_LEN + 1
 
 #define TY_VM_FLAGS      "VmFlags:"
-#define LEN_VM_FLAGS      sizeof(TY_VM_FLAGS)-1
-
+#define LEN_VM_FLAGS     sizeof(TY_VM_FLAGS)-1
 
 #define OFF_NAME 73
 
-char *filter;
 char *argv0;
 
 typedef struct {
@@ -89,6 +87,9 @@ die(const char *fmt, ...)
 	exit(EXIT_FAILURE);
 }
 
+/// _readlink is a simple wrapper around readlink which returns a
+/// malloc'ed buffer that the caller now owns containing the
+/// null-terminated contents of the symbolic link.
 char *
 _readlink(char *path)
 {
@@ -337,12 +338,14 @@ main(int argc, char *const argv[])
 	int n, nuniq, next;
 	PIDList pids;
 	MemInfo **cmds, **cmd_sums;
+	char *filter;
 	const char *tot_fmt;
 	bool show_heap;
 
 	tot_pss = 0;
 	tot_swap = 0;
 	show_heap = false;
+	filter = NULL;
 
 	for (argv0 = argv[0], argv++, argc--; argc > 0; argv++, argc--) {
 		char const* arg = argv[0];
@@ -350,6 +353,8 @@ main(int argc, char *const argv[])
 			usage();
 		} else if (strcmp("-heap", arg) == 0) {
 			show_heap = true;
+		} else if (strncmp("-filter=", arg, 8) == 0) {
+			filter = strdup(&arg[8]);
 		} else if (arg[0] == '-') {
 			fprintf(stderr, "unknown arg '%s'\n", arg);
 			usage();
@@ -421,6 +426,10 @@ main(int argc, char *const argv[])
 		MemInfo *c = cmd_sums[i];
 		char *n = c->name;
 		float pss;
+
+		if (filter && !strstr(n, filter))
+			continue;
+
 		if (strlen(n) > CMD_DISPLAY_MAX) {
 			if (n[0] == '[' && strchr(n, ']'))
 				strchr(n, ']')[1] = '\0';
@@ -443,6 +452,8 @@ main(int argc, char *const argv[])
 			       c->shared/1024., sbuf, n, c->npids);
 	}
 	free(cmd_sums);
+
+	free(filter);
 
 	for (int i = 0; i < n; i++)
 		meminfo_free(cmds[i]);

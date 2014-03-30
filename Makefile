@@ -9,6 +9,9 @@ all: $(EXE)
 config.h:
 	cp config.def.h config.h
 
+config.mk:
+	cp config.def.mk config.mk
+
 .c.o:
 	@echo "  CC    $<"
 	@${CC} -c ${CFLAGS} $<
