@@ -74,7 +74,7 @@ static ssize_t list_pids(int **);
 static char *argv0;
 
 
-void
+void __attribute__((noreturn))
 die(const char *fmt, ...)
 {
 	va_list args;
@@ -431,7 +431,7 @@ main(int argc, char *const argv[])
 	}
 
 	proc_count = list_pids(&pids);
-	if (proc_count < 0)
+	if (proc_count <= 0)
 		die("list_pids failed\n");
 
 	cmds = calloc(sizeof(CmdInfo*), proc_count);
