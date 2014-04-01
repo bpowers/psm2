@@ -198,10 +198,12 @@ proc_mem(CmdInfo *mi, int pid)
 {
 	float priv;
 	FILE *f;
+	bool skip_read;
 	char path[32];
 	snprintf(path, sizeof(path), "/proc/%d/smaps", pid);
 
 	priv = 0;
+	skip_read = false;
 
 	f = fopen(path, "r");
 	if (!f)
@@ -214,9 +216,13 @@ proc_mem(CmdInfo *mi, int pid)
 		char *ok;
 		char line[LINE_BUF_SIZE];
 
-		ok = fgets(line, LINE_BUF_SIZE, f);
+		if (skip_read)
+			ok = line;
+		else
+			ok = fgets(line, LINE_BUF_SIZE, f);
 		if (!ok)
 			break;
+		skip_read = false;
 
 		// first line is VMA info - if not anonymous, the name
 		// of the file/section is at offset OFF_NAME (73)
@@ -249,12 +255,25 @@ proc_mem(CmdInfo *mi, int pid)
 		// after the constant-sized smap details, there is an
 		// optional Nonlinear line, followed by the final
 		// VmFlags line.
-		do {
+		while (true) {
 			ok = fgets(line, LINE_BUF_SIZE, f);
-			if (!ok)
+			if (!ok) {
+				goto end;
+			} else if (strncmp(line, TY_VM_FLAGS, LEN_VM_FLAGS) == 0) {
 				break;
-		} while (strncmp(line, TY_VM_FLAGS, LEN_VM_FLAGS) != 0);
+			} else if (strlen(line) > MAP_DETAIL_LEN) {
+				// older kernels don't have VmFlags,
+				// but can have Nonlinear.  If we have
+				// a line longer than a detail line it
+				// is the VMA info and we should skip
+				// reading the VMA info at the start
+				// of the next loop iteration.
+				skip_read = true;
+				break;
+			}
+		}
 	}
+end:
 	mi->shared = mi->pss - priv;
 
 	fclose(f);
