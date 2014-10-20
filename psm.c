@@ -63,7 +63,7 @@ static int proc_cmdline(int, char *buf, size_t len);
 static char *_readlink(char *);
 
 static void usage(void);
-static void print_results(CmdInfo **, size_t, bool, char *);
+static void print_results(CmdInfo **, size_t, bool, bool, char *);
 
 static int cmp_cmdinfop_name(const void *, const void *);
 static int cmp_cmdinfop_pss(const void *, const void *);
@@ -350,7 +350,7 @@ cmp_cmdinfop_pss(const void *a_in, const void *b_in)
 }
 
 void
-print_results(CmdInfo **cmds, size_t count, bool show_heap, char *filter)
+print_results(CmdInfo **cmds, size_t count, bool show_heap, bool quiet, char *filter)
 {
 	float tot_pss, tot_swap;
 	const char *tot_fmt;
@@ -360,12 +360,14 @@ print_results(CmdInfo **cmds, size_t count, bool show_heap, char *filter)
 
 	if (show_heap) {
 		tot_fmt = "#%9.1f%30.1f\tTOTAL USED BY PROCESSES\n";
-		printf("%10s%10s%10s%10s\t%s\n", "MB RAM", "SHARED",
-		       "HEAP", "SWAPPED", "PROCESS (COUNT)");
+		if (!quiet)
+			printf("%10s%10s%10s%10s\t%s\n", "MB RAM", "SHARED",
+			       "HEAP", "SWAPPED", "PROCESS (COUNT)");
 	} else {
 		tot_fmt = "#%9.1f%20.1f\tTOTAL USED BY PROCESSES\n";
-		printf("%10s%10s%10s\t%s\n", "MB RAM", "SHARED",
-		       "SWAPPED", "PROCESS (COUNT)");
+		if (!quiet)
+			printf("%10s%10s%10s\t%s\n", "MB RAM", "SHARED",
+			       "SWAPPED", "PROCESS (COUNT)");
 	}
 
 	for (size_t i = 0; i < count; i++) {
@@ -399,7 +401,8 @@ print_results(CmdInfo **cmds, size_t count, bool show_heap, char *filter)
 			       c->shared/1024., sbuf, n, c->npids);
 	}
 
-	printf(tot_fmt, tot_pss, tot_swap);
+	if (!quiet)
+		printf(tot_fmt, tot_pss, tot_swap);
 	fflush(stdout);
 }
 
@@ -409,8 +412,9 @@ usage(void)
 	die("Usage: %s [OPTION...]\n" \
 	    "Simple, accurate RAM and swap reporting.\n\n" \
 	    "Options:\n" \
-	    "  -heap:\tshow heap column\n" \
-	    "  -filter='':\tsimple filter to test process names against\n",
+	    "\t-q\tquiet - supress column header + total footer\n" \
+	    "\t-heap\tshow heap column\n" \
+	    "\t-filter=''\tsimple string to test process names against\n",
 	    argv0);
 }
 
@@ -422,15 +426,18 @@ main(int argc, char *const argv[])
 	int *pids;
 	CmdInfo **cmds, **cmd_sums;
 	char *filter;
-	bool show_heap;
+	bool show_heap, quiet;
 
 	show_heap = false;
+	quiet = false;
 	filter = NULL;
 
 	for (argv0 = argv[0], argv++, argc--; argc > 0; argv++, argc--) {
 		char const* arg = argv[0];
 		if (strcmp("-help", arg) == 0) {
 			usage();
+		} else if (strcmp("-q", arg) == 0) {
+			quiet = true;
 		} else if (strcmp("-heap", arg) == 0) {
 			show_heap = true;
 		} else if (strncmp("-filter=", arg, 8) == 0) {
@@ -494,7 +501,7 @@ main(int argc, char *const argv[])
 
 	qsort(cmd_sums, nuniq, sizeof(CmdInfo*), cmp_cmdinfop_pss);
 
-	print_results(cmd_sums, nuniq, show_heap, filter);
+	print_results(cmd_sums, nuniq, show_heap, quiet, filter);
 
 	free(cmd_sums);
 	free(filter);
