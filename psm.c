@@ -87,14 +87,20 @@ die(const char *fmt, ...)
 }
 
 /// _readlink is a simple wrapper around readlink which returns a
-/// malloc'ed buffer that the caller now owns containing the
+/// malloc'ed buffer that the caller now owns, containing the
 /// null-terminated contents of the symbolic link.
 char *
 _readlink(char *path)
 {
+	ssize_t n;
+	char *b;
+
 	for (int len=64;; len*=2) {
-		char *b = malloc(len);
-		ssize_t n = readlink(path, b, len);
+		b = malloc(len);
+		if (!b)
+			return NULL;
+
+		n = readlink(path, b, len);
 		if (n == -1) {
 			free(b);
 			return NULL;
@@ -471,7 +477,9 @@ main(int argc, char *const argv[])
 	pids = NULL;
 
 	// n is potentially smaller than pids.count, so free any
-	// unused space
+	// unused space (no CmdInfo is available for kernel threads or
+	// processes that have exited in between listing PIDs and
+	// reading their proc entries)
 	cmds = realloc(cmds, n*sizeof(CmdInfo*));
 
 	qsort(cmds, n, sizeof(CmdInfo*), cmp_cmdinfop_name);
