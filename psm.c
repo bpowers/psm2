@@ -59,6 +59,8 @@ static char *_readlink(char *);
 static CmdInfo *cmdinfo_new(int);
 static void cmdinfo_free(CmdInfo *);
 
+static int smap_read_int(char *, int);
+
 static int proc_name(CmdInfo *, int);
 static int proc_mem(CmdInfo *, int);
 static int proc_cmdline(int, char *buf, size_t len);
@@ -148,6 +150,13 @@ cmdinfo_free(CmdInfo *ci)
 }
 
 int
+smap_read_int(char *chunk, int line)
+{
+	// line is 1-indexed, but offsets into the smap are 0-index.
+	return atoi(&chunk[(line-1)*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
+}
+
+int
 proc_name(CmdInfo *ci, int pid)
 {
 	int n;
@@ -213,11 +222,10 @@ proc_mem(CmdInfo *ci, int pid)
 	FILE *f;
 	bool skip_read;
 	char path[32];
-	snprintf(path, sizeof(path), "/proc/%d/smaps", pid);
 
+	snprintf(path, sizeof(path), "/proc/%d/smaps", pid);
 	priv = 0;
 	skip_read = false;
-
 	f = fopen(path, "r");
 	if (!f)
 		return -1;
@@ -233,9 +241,10 @@ proc_mem(CmdInfo *ci, int pid)
 			ok = line;
 		else
 			ok = fgets(line, LINE_BUF_SIZE, f);
+		skip_read = false;
+
 		if (!ok)
 			break;
-		skip_read = false;
 
 		// first line is VMA info - if not anonymous, the name
 		// of the file/section is at offset OFF_NAME (73)
@@ -252,7 +261,7 @@ proc_mem(CmdInfo *ci, int pid)
 		line[SMAP_DETAILS_LEN] = '\0';
 
 		// Pss - line 3
-		m = atoi(&line[2*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
+		m = smap_read_int(line, 3);
 		ci->pss += m + PSS_ADJUST;
 		// we don't need PSS_ADJUST for heap because
 		// the heap is private and anonymous.
@@ -260,10 +269,10 @@ proc_mem(CmdInfo *ci, int pid)
 			ci->heap += m;
 
 		// Private_Clean & Private_Dirty are lines 6 and 7
-		priv += atoi(&line[5*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
-		priv += atoi(&line[6*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
+		priv += smap_read_int(line, 6);
+		priv += smap_read_int(line, 7);
 
-		ci->swap += atoi(&line[10*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
+		ci->swap += smap_read_int(line, 11);
 
 		// after the constant-sized smap details, there is an
 		// optional Nonlinear line, followed by the final
