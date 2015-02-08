@@ -22,7 +22,10 @@ $(EXE): ${OBJ}
 	@echo "  LD    $@"
 	@${CC} -o $@ ${OBJ} ${LDFLAGS}
 
+install: ${EXE}
+	install -c -m 4755 ${EXE} ${PREFIX}/bin/${EXE}
+
 clean:
 	rm -f $(EXE) ${OBJ}
 
-.PHONY: all clean
+.PHONY: all install clean
