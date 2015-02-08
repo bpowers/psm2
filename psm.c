@@ -54,13 +54,14 @@ typedef struct {
 
 static void die(const char *, ...);
 
+static char *_readlink(char *);
+
 static CmdInfo *cmdinfo_new(int);
 static void cmdinfo_free(CmdInfo *);
 
 static int proc_name(CmdInfo *, int);
 static int proc_mem(CmdInfo *, int);
 static int proc_cmdline(int, char *buf, size_t len);
-static char *_readlink(char *);
 
 static void usage(void);
 static void print_results(CmdInfo **, size_t, bool, bool, char *);
@@ -117,35 +118,41 @@ CmdInfo *
 cmdinfo_new(int pid)
 {
 	int err;
-	CmdInfo *mi = calloc(sizeof(CmdInfo), 1);
-	mi->npids = 1;
+	CmdInfo *ci;
 
-	err = proc_name(mi, pid);
-	if (err) goto error;
+	ci = calloc(sizeof(CmdInfo), 1);
+	if (!ci)
+		goto error;
+	ci->npids = 1;
 
-	err = proc_mem(mi, pid);
-	if (err) goto error;
+	err = proc_name(ci, pid);
+	if (err)
+		goto error;
 
-	return mi;
+	err = proc_mem(ci, pid);
+	if (err)
+		goto error;
+
+	return ci;
 error:
-	cmdinfo_free(mi);
-	mi = NULL;
+	cmdinfo_free(ci);
 	return NULL;
 }
 
 void
-cmdinfo_free(CmdInfo *mi)
+cmdinfo_free(CmdInfo *ci)
 {
-	if (mi && mi->name)
-		free(mi->name);
-	free(mi);
+	if (ci && ci->name)
+		free(ci->name);
+	free(ci);
 }
 
 int
-proc_name(CmdInfo *mi, int pid)
+proc_name(CmdInfo *ci, int pid)
 {
 	int n;
 	char path[32], buf[BUFSIZ], shortbuf[COMM_MAX+1];
+
 	snprintf(path, sizeof(path), "/proc/%d/exe", pid);
 
 	char *p = _readlink(path);
@@ -165,9 +172,9 @@ proc_name(CmdInfo *mi, int pid)
 	shortbuf[COMM_MAX] = '\0';
 
 	if (strcmp(p, shortbuf) >= 0)
-		mi->name = strdup(basename(p));
+		ci->name = strdup(basename(p));
 	else
-		mi->name = strdup(buf);
+		ci->name = strdup(buf);
 	free(p);
 	return 0;
 }
@@ -200,7 +207,7 @@ error:
 }
 
 int
-proc_mem(CmdInfo *mi, int pid)
+proc_mem(CmdInfo *ci, int pid)
 {
 	float priv;
 	FILE *f;
@@ -246,17 +253,17 @@ proc_mem(CmdInfo *mi, int pid)
 
 		// Pss - line 3
 		m = atoi(&line[2*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
-		mi->pss += m + PSS_ADJUST;
+		ci->pss += m + PSS_ADJUST;
 		// we don't need PSS_ADJUST for heap because
 		// the heap is private and anonymous.
 		if (is_heap)
-			mi->heap += m;
+			ci->heap += m;
 
 		// Private_Clean & Private_Dirty are lines 6 and 7
 		priv += atoi(&line[5*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
 		priv += atoi(&line[6*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
 
-		mi->swap += atoi(&line[10*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
+		ci->swap += atoi(&line[10*MAP_DETAIL_LEN+MAP_DETAIL_OFF]);
 
 		// after the constant-sized smap details, there is an
 		// optional Nonlinear line, followed by the final
@@ -280,7 +287,7 @@ proc_mem(CmdInfo *mi, int pid)
 		}
 	}
 end:
-	mi->shared = mi->pss - priv;
+	ci->shared = ci->pss - priv;
 
 	fclose(f);
 	return 0;
@@ -430,7 +437,7 @@ main(int argc, char *const argv[])
 	int n, nuniq, next;
 	ssize_t proc_count;
 	int *pids;
-	CmdInfo **cmds, **cmd_sums;
+	CmdInfo *ci, **cmds, **cmd_sums;
 	char *filter;
 	bool show_heap, quiet;
 
@@ -467,11 +474,14 @@ main(int argc, char *const argv[])
 		die("list_pids failed\n");
 
 	cmds = calloc(sizeof(CmdInfo*), proc_count);
+	if (!cmds)
+		die("calloc cmds failed\n");
+
 	n = 0;
 	for (int *pid = pids; *pid; pid++) {
-		CmdInfo *mi = cmdinfo_new(*pid);
-		if (mi)
-			cmds[n++] = mi;
+		ci = cmdinfo_new(*pid);
+		if (ci)
+			cmds[n++] = ci;
 	}
 	free(pids);
 	pids = NULL;
@@ -479,7 +489,8 @@ main(int argc, char *const argv[])
 	// n is potentially smaller than pids.count, so free any
 	// unused space (no CmdInfo is available for kernel threads or
 	// processes that have exited in between listing PIDs and
-	// reading their proc entries)
+	// reading their proc entries).  This will never increase the
+	// size of cmds.
 	cmds = realloc(cmds, n*sizeof(CmdInfo*));
 
 	qsort(cmds, n, sizeof(CmdInfo*), cmp_cmdinfop_name);
@@ -491,6 +502,9 @@ main(int argc, char *const argv[])
 	}
 
 	cmd_sums = calloc(sizeof(CmdInfo*), nuniq);
+	if (!cmd_sums)
+		die("calloc cmd_sums failed\n");
+
 	next = 0;
 
 	for (int i = 0; i < n; i++) {
