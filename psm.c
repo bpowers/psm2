@@ -3,25 +3,19 @@
 // license that can be found in the LICENSE file.
 
 #define _GNU_SOURCE // asprintf
-#include <stdio.h>
+#include <stdio.h>   // for NULL, fprintf, snprintf, stderr, BUFSIZ, fclose, etc
 #undef _GNU_SOURCE
 
-#include <assert.h>
-#include <ctype.h>
-#include <dirent.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <ftw.h>
-#include <libgen.h>
-#include <sched.h>
-#include <stdarg.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include <ctype.h>   // for isdigit
+#include <dirent.h>  // for closedir, readdir, dirent, opendir, rewinddir, etc
+#include <errno.h>   // for errno
+#include <fcntl.h>   // for O_RDONLY
+#include <libgen.h>  // for basename
+#include <stdarg.h>  // for va_list
+#include <stdbool.h> // for bool
+#include <stdlib.h>  // for free, calloc, atoi, exit, malloc, realloc, etc
+#include <string.h>  // for strcmp, strdup, strncmp, strncpy
+#include <unistd.h>  // for ssize_t, geteuid
 
 #include "config.h"
 
