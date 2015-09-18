@@ -27,7 +27,7 @@
 #define PSS_ADJUST       .5
 #define MAP_DETAIL_LEN   sizeof("Size:                  4 kB")-1
 #define MAP_DETAIL_OFF   16
-#define SMAP_DETAILS_LEN 392
+#define SMAP_DETAILS_LEN 15*(MAP_DETAIL_LEN+1)
 #define LINE_BUF_SIZE    SMAP_DETAILS_LEN + 1
 
 #define TY_VM_FLAGS      "VmFlags:"
@@ -248,10 +248,11 @@ proc_mem(CmdInfo *ci, int pid)
 		if (!len)
 			break;
 
+		memset(line, 0, LINE_BUF_SIZE);
 		len = fread(line, 1, SMAP_DETAILS_LEN, f);
 		if (len != SMAP_DETAILS_LEN)
-			die("couldn't read details (%zu != %zu) - out of sync?",
-			    len, SMAP_DETAILS_LEN);
+			die("couldn't read details of %d (%zu != %zu) - out of sync?:\n%s",
+			    pid, len, SMAP_DETAILS_LEN, line);
 		line[SMAP_DETAILS_LEN] = '\0';
 
 		// Pss - line 3
