@@ -27,9 +27,11 @@
 #define PSS_ADJUST       .5
 #define MAP_DETAIL_LEN   sizeof("Size:                  4 kB")-1
 #define MAP_DETAIL_OFF   16
-#define SMAP_DETAILS_LEN 15*(MAP_DETAIL_LEN+1)
-#define LINE_BUF_SIZE    SMAP_DETAILS_LEN + 1
 
+#define LINE_BUF_SIZE    512
+
+#define TY_NONLINEAR     "Nonlinear:"
+#define LEN_NONLINEAR    sizeof(TY_NONLINEAR)-1
 #define TY_VM_FLAGS      "VmFlags:"
 #define LEN_VM_FLAGS     sizeof(TY_VM_FLAGS)-1
 
@@ -50,13 +52,14 @@ static void die(const char *, ...);
 
 static char *_readlink(char *);
 
-static CmdInfo *cmdinfo_new(int);
+static CmdInfo *cmdinfo_new(int, size_t);
 static void cmdinfo_free(CmdInfo *);
 
 static int smap_read_int(char *, int);
+static size_t smap_details_len(void);
 
 static int proc_name(CmdInfo *, int);
-static int proc_mem(CmdInfo *, int);
+static int proc_mem(CmdInfo *, int, size_t);
 static int proc_cmdline(int, char *buf, size_t len);
 
 static void usage(void);
@@ -111,7 +114,7 @@ _readlink(char *path)
 }
 
 CmdInfo *
-cmdinfo_new(int pid)
+cmdinfo_new(int pid, size_t details_len)
 {
 	int err;
 	CmdInfo *ci;
@@ -125,7 +128,7 @@ cmdinfo_new(int pid)
 	if (err)
 		goto error;
 
-	err = proc_mem(ci, pid);
+	err = proc_mem(ci, pid, details_len);
 	if (err)
 		goto error;
 
@@ -209,8 +212,46 @@ error:
 	return -1;
 }
 
+
+size_t
+smap_details_len(void)
+{
+	size_t len = 0, result = 0;
+	FILE *f = NULL;
+	char *ok;
+	char line[LINE_BUF_SIZE];
+
+	f = fopen("/proc/self/smaps", "r");
+	if (!f)
+		return 0;
+
+	// skip first line, which is the name + address of the mapping
+	ok = fgets(line, LINE_BUF_SIZE, f);
+	if (!ok)
+		goto out;
+
+	while (true) {
+		ok = fgets(line, LINE_BUF_SIZE, f);
+		if (!ok)
+			goto out;
+		else if (strncmp(line, TY_NONLINEAR, LEN_NONLINEAR) == 0)
+			break;
+		else if (strncmp(line, TY_VM_FLAGS, LEN_VM_FLAGS) == 0)
+			break;
+		if (strlen(line) != MAP_DETAIL_LEN+1)
+			die("unexpected line len %zu != %zu",
+			    strlen(line), MAP_DETAIL_LEN+1);
+		len += MAP_DETAIL_LEN+1;
+	}
+	result = len;
+
+out:
+	fclose(f);
+	return result;
+}
+
 int
-proc_mem(CmdInfo *ci, int pid)
+proc_mem(CmdInfo *ci, int pid, size_t details_len)
 {
 	float priv;
 	FILE *f;
@@ -229,12 +270,12 @@ proc_mem(CmdInfo *ci, int pid)
 		float m;
 		bool is_heap = false;
 		char *ok;
-		char line[LINE_BUF_SIZE];
+		char line[details_len+1];
 
 		if (skip_read)
 			ok = line;
 		else
-			ok = fgets(line, LINE_BUF_SIZE, f);
+			ok = fgets(line, details_len+1, f);
 		skip_read = false;
 
 		if (!ok)
@@ -248,12 +289,12 @@ proc_mem(CmdInfo *ci, int pid)
 		if (!len)
 			break;
 
-		memset(line, 0, LINE_BUF_SIZE);
-		len = fread(line, 1, SMAP_DETAILS_LEN, f);
-		if (len != SMAP_DETAILS_LEN)
+		//memset(line, 0, details_len+1);
+		len = fread(line, 1, details_len, f);
+		if (len != details_len)
 			die("couldn't read details of %d (%zu != %zu) - out of sync?:\n%s",
-			    pid, len, SMAP_DETAILS_LEN, line);
-		line[SMAP_DETAILS_LEN] = '\0';
+			    pid, len, details_len, line);
+		line[details_len] = '\0';
 
 		// Pss - line 3
 		m = smap_read_int(line, 3);
@@ -273,7 +314,7 @@ proc_mem(CmdInfo *ci, int pid)
 		// optional Nonlinear line, followed by the final
 		// VmFlags line.
 		while (true) {
-			ok = fgets(line, LINE_BUF_SIZE, f);
+			ok = fgets(line, details_len, f);
 			if (!ok) {
 				goto end;
 			} else if (strncmp(line, TY_VM_FLAGS, LEN_VM_FLAGS) == 0) {
@@ -439,6 +480,7 @@ int
 main(int argc, char *const argv[])
 {
 	int n, nuniq, next;
+	size_t details_len;
 	ssize_t proc_count;
 	int *pids;
 	CmdInfo *ci, **cmds, **cmd_sums;
@@ -473,6 +515,8 @@ main(int argc, char *const argv[])
 		    argv0, argv0);
 	}
 
+	details_len = smap_details_len();
+
 	proc_count = list_pids(&pids);
 	if (proc_count <= 0)
 		die("list_pids failed\n");
@@ -483,7 +527,7 @@ main(int argc, char *const argv[])
 
 	n = 0;
 	for (int *pid = pids; *pid; pid++) {
-		ci = cmdinfo_new(*pid);
+		ci = cmdinfo_new(*pid, details_len);
 		if (ci)
 			cmds[n++] = ci;
 	}
