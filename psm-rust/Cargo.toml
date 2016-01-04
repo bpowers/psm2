@@ -1,0 +1,6 @@
+[package]
+name = "psm"
+version = "0.1.0"
+authors = ["Bobby Powers <bobbypowers@gmail.com>"]
+
+[dependencies]
