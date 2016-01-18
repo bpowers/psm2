@@ -45,35 +45,6 @@ fn get_pids<'a>() -> Result<Vec<i32>, String> {
 
     Ok(pids)
 }
-/*
-    {
-	Err(err) => println!("read_dir({}): {}", PROC_PATH, err),
-	Ok(result) => {
-	    // result.filter()
-	}
-	    for entry in result {
-	    match entry {
-		Err(_) => (), // ignore
-		Ok(dent) => {
-		    if !is_digit(dent.file_name().to_str().unwrap().char_at(0)) {
-			continue;
-		    }
-		    match fs::metadata(dent.path()) {
-			Err(_) => (), // ignore
-			Ok(md) => {
-			    if md.is_dir() {
-				pids.push(i32::from_str_radix(dent.file_name().to_str().unwrap(), 10).unwrap());
-			    }
-			}
-		    }
-		},
-	    }
-	},
-    };
-
-    return pids;
-}
-*/
 
 fn cmdinfos_for(pids: Vec<i32>) -> Vec<CmdInfo> {
     let mut infos: Vec<CmdInfo> = Vec::with_capacity(pids.len());
