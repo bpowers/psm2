@@ -19,14 +19,53 @@ struct CmdInfo {
     swap: f32,
 }
 
-fn is_digit(d: u8) -> bool {
-    d >= ('0' as u8) && d <= ('9' as u8)
+fn is_digit(d: char) -> bool {
+    d >= '0' && d <= '9'
+}
+
+fn get_pids() -> Vec<i32> {
+    let mut pids: Vec<i32> = vec!();
+
+    match fs::read_dir(PROC_PATH) {
+	Err(err) => println!("read_dir({}): {}", PROC_PATH, err),
+	Ok(result) => for entry in result {
+	    match entry {
+		Err(_) => (), // ignore
+		Ok(dent) => {
+		    if !is_digit(dent.file_name().to_str().unwrap().char_at(0)) {
+			continue;
+		    }
+		    match fs::metadata(dent.path()) {
+			Err(_) => (), // ignore
+			Ok(md) => {
+			    if md.is_dir() {
+				pids.push(i32::from_str_radix(dent.file_name().to_str().unwrap(), 10).unwrap());
+			    }
+			}
+		    }
+		},
+	    }
+	},
+    };
+
+    return pids;
+}
+
+fn cmdinfos_for(pids: Vec<i32>) -> Vec<CmdInfo> {
+    let mut infos: Vec<CmdInfo> = Vec::with_capacity(pids.len());
+
+    for pid in pids {
+	println!("pid: {}", pid);
+    }
+
+    return infos;
 }
 
 fn main() {
 
     // command line flag parsing
 
+    // check euid
     // unsafe {
     // 	let uid = geteuid();
     // 	if uid != 0 {
@@ -34,30 +73,10 @@ fn main() {
     // 	}
     // }
 
-    let mut pids: Vec<i32> = vec!();
-
-    // get a list of all pids
-    /*let result =*/ match fs::read_dir(PROC_PATH) {
-	Err(err) => {
-	    println!("read_dir({}): {}", PROC_PATH, err);
-	    return;
-	},
-	Ok(result) => {
-	    for entry in result {
-		entry.map(|dent| {
-		    fs::metadata(dent.path()).map(|md| {
-			if md.is_dir() && is_digit(dent.file_name().to_bytes().unwrap()[0]) {
-			    let file_name = dent.file_name();
-			    let name = file_name.to_str().unwrap();
-			    println!("pid: {}", name);
-			}
-		    });
-		})
-	    };
-	},
-    };
+    let pids = get_pids();
 
     // get details of all pids (possibly in parallel)
+    let infos = cmdinfos_for(pids);
 
     // sort pid details
 
