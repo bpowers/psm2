@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#![feature(convert,str_char)]
+#![feature(str_char)]
 
 //extern crate libc;
 //use libc::geteuid;
@@ -20,26 +20,37 @@ struct CmdInfo {
     swap: f32,
 }
 
+#[inline(never)]
 fn is_digit(d: char) -> bool {
     d >= '0' && d <= '9'
 }
 
-fn not_dir<T>() -> Result<T, Error> {
-    Err(Error::new(ErrorKind::NotFound, "not a directory"))
+#[inline(never)]
+fn first_char(name: std::ffi::OsString) -> char {
+    name.to_str().unwrap().char_at(0)
 }
 
-fn get_pids<'a>() -> Result<Vec<i32>, String> {
+fn is_dir(md: fs::Metadata) -> Result<fs::Metadata, Error> {
+    if md.is_dir() {
+	Ok(md)
+    } else {
+	Err(Error::new(ErrorKind::NotFound, "not a directory"))
+    }
+}
+
+#[inline(never)]
+fn get_pids() -> Result<Vec<i32>, String> {
     let mut dir = fs::read_dir(PROC_PATH);
-    if dir.is_err() {
-	return Err(format!("read_dir({}): {}", PROC_PATH, dir.err().unwrap()));
+    if let Err(err)= dir {
+	return Err(format!("read_dir({}): {}", PROC_PATH, err));
     }
 
     // TODO: look at filter_map
     let pids: Vec<i32> = dir.unwrap()
 	.filter(|e| e.is_ok()) // ignore bad dirent results
 	.map(|e| e.unwrap())   // make this a list of dirents
-	.filter(|e| is_digit(e.file_name().to_str().unwrap().char_at(0)))
-	.filter(|e| fs::metadata(e.path()).and_then(|md| if md.is_dir() { Ok("") } else { not_dir() }).is_ok())
+	.filter(|e| is_digit(first_char(e.file_name())))
+	.filter(|e| fs::metadata(e.path()).and_then(|md| is_dir(md)).is_ok())
 	.map(|e| i32::from_str_radix(e.file_name().to_str().unwrap(), 10).unwrap())
 	.collect();
 
@@ -69,8 +80,8 @@ fn main() {
     // }
 
     let pids_r = get_pids();
-    if pids_r.is_err() {
-	println!("get_pids: {}", pids_r.err().unwrap());
+    if let Err(err) = pids_r {
+	println!("get_pids: {}", err);
 	return;
     }
 
