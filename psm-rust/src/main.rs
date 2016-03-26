@@ -8,7 +8,9 @@
 //use libc::geteuid;
 
 use std::fs;
-use std::io::{Error, ErrorKind};
+use std::fs::{File};
+use std::io::{Read, Error, ErrorKind};
+use std::path::{PathBuf};
 
 const PROC_PATH: &'static str = "/proc";
 
@@ -40,7 +42,7 @@ fn is_dir(md: fs::Metadata) -> Result<fs::Metadata, Error> {
 
 #[inline(never)]
 fn get_pids() -> Result<Vec<i32>, String> {
-    let mut dir = fs::read_dir(PROC_PATH);
+    let dir = fs::read_dir(PROC_PATH);
     if let Err(err)= dir {
 	return Err(format!("read_dir({}): {}", PROC_PATH, err));
     }
@@ -57,14 +59,54 @@ fn get_pids() -> Result<Vec<i32>, String> {
     Ok(pids)
 }
 
-fn cmdinfos_for(pids: Vec<i32>) -> Vec<CmdInfo> {
-    let mut infos: Vec<CmdInfo> = Vec::with_capacity(pids.len());
+fn proc_cmdline(pid: i32) -> Result<Vec<u8>, String> {
+    const BUFSIZ: usize = 1024;
+    let mut buf = Vec::with_capacity(BUFSIZ);
+    let path = format!("/proc/{}/cmdline", pid);
 
-    for pid in pids {
-	println!("pid: {}", pid);
+    // TODO: we don't really care about reading all of the
+    // cmdline, just the first 1024 chars is enough.
+    let mut f = match File::open(path) {
+	Ok(f) => f,
+	Err(_) => return Err("open failed".to_string())
+    };
+
+
+    if f.read_to_end(&mut buf).is_ok() {
+	return Ok(buf)
     }
 
-    return infos;
+    Err("proc_cmdline failed".to_string())
+}
+
+fn proc_name(pid: i32) -> Result<PathBuf, String> {
+    let path = format!("/proc/{}/exe", pid);
+
+    if let Ok(full_path) = fs::read_link(path) {
+	if let Ok(cmdline) = proc_cmdline(pid) {
+
+	}
+    }
+
+    Err("proc_name failed".to_string())
+}
+
+fn cmdinfo_new(pid: i32) -> CmdInfo {
+
+    let proc_name = proc_name(pid);
+
+    return CmdInfo{
+	name: "wah",
+	pss: 0.0,
+	shared: 0.0,
+	heap: 0.0,
+	swap: 0.0,
+    }
+}
+
+fn cmdinfos_for(pids: Vec<i32>) -> Result<Vec<CmdInfo>, String> {
+
+    Err("not implemented".to_string())
 }
 
 fn main() {

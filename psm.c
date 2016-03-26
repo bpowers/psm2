@@ -582,3 +582,11 @@ main(int argc, char *const argv[])
 
 	return 0;
 }
+
+/*
+
+- the structure of /proc dir
+
+- the structure/format of /proc/$pid/smaps
+
+*/
