@@ -52,14 +52,14 @@ static void die(const char *, ...);
 
 static char *_readlink(char *);
 
-static CmdInfo *cmdinfo_new(int, size_t);
+static CmdInfo *cmdinfo_new(int, size_t, char *);
 static void cmdinfo_free(CmdInfo *);
 
 static int smap_read_int(char *, int);
 static size_t smap_details_len(void);
 
 static int proc_name(CmdInfo *, int);
-static int proc_mem(CmdInfo *, int, size_t);
+static int proc_mem(CmdInfo *, int, size_t, char *);
 static int proc_cmdline(int, char *buf, size_t len);
 
 static void usage(void);
@@ -114,7 +114,7 @@ _readlink(char *path)
 }
 
 CmdInfo *
-cmdinfo_new(int pid, size_t details_len)
+cmdinfo_new(int pid, size_t details_len, char *details_buf)
 {
 	int err;
 	CmdInfo *ci;
@@ -128,7 +128,7 @@ cmdinfo_new(int pid, size_t details_len)
 	if (err)
 		goto error;
 
-	err = proc_mem(ci, pid, details_len);
+	err = proc_mem(ci, pid, details_len, details_buf);
 	if (err)
 		goto error;
 
@@ -177,6 +177,8 @@ proc_name(CmdInfo *ci, int pid)
 	strncpy(shortbuf, buf, COMM_MAX);
 	shortbuf[COMM_MAX] = '\0';
 
+	// XXX: I thnk this is wrong.  a) we can use strncmp rather
+	// than the copy.  b) >= doesn/t make sense, it should be !=.
 	if (strcmp(p, shortbuf) >= 0)
 		ci->name = strdup(basename(p));
 	else
@@ -251,7 +253,7 @@ out:
 }
 
 int
-proc_mem(CmdInfo *ci, int pid, size_t details_len)
+proc_mem(CmdInfo *ci, int pid, size_t details_len, char *details_buf)
 {
 	float priv;
 	FILE *f;
@@ -270,7 +272,7 @@ proc_mem(CmdInfo *ci, int pid, size_t details_len)
 		float m;
 		bool is_heap = false;
 		char *ok;
-		char line[details_len+1];
+		char *line = details_buf;
 
 		if (skip_read)
 			ok = line;
@@ -484,7 +486,7 @@ main(int argc, char *const argv[])
 	ssize_t proc_count;
 	int *pids;
 	CmdInfo *ci, **cmds, **cmd_sums;
-	char *filter;
+	char *filter, *details_buf;
 	bool show_heap, quiet;
 
 	show_heap = false;
@@ -525,12 +527,18 @@ main(int argc, char *const argv[])
 	if (!cmds)
 		die("calloc cmds failed\n");
 
+	details_buf = malloc(details_len+1);
+	if (!details_buf)
+		die("malloc(details_len+1 failed\n");
+	details_buf[details_len] = 0;
+
 	n = 0;
 	for (int *pid = pids; *pid; pid++) {
-		ci = cmdinfo_new(*pid, details_len);
+		ci = cmdinfo_new(*pid, details_len, details_buf);
 		if (ci)
 			cmds[n++] = ci;
 	}
+	free(details_buf);
 	free(pids);
 	pids = NULL;
 
@@ -539,7 +547,8 @@ main(int argc, char *const argv[])
 	// processes that have exited in between listing PIDs and
 	// reading their proc entries).  This will never increase the
 	// size of cmds.
-	cmds = realloc(cmds, n*sizeof(CmdInfo*));
+	if (n)
+		cmds = realloc(cmds, n*sizeof(CmdInfo*));
 
 	qsort(cmds, n, sizeof(CmdInfo*), cmp_cmdinfop_name);
 
@@ -549,7 +558,11 @@ main(int argc, char *const argv[])
 			nuniq++;
 	}
 
-	cmd_sums = calloc(sizeof(CmdInfo*), nuniq);
+	cmd_sums = NULL;
+
+	if (nuniq)
+		cmd_sums = calloc(sizeof(CmdInfo*), nuniq);
+
 	if (!cmd_sums)
 		die("calloc cmd_sums failed\n");
 
