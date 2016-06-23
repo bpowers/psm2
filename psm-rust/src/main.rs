@@ -15,7 +15,7 @@ use std::path::{PathBuf};
 const PROC_PATH: &'static str = "/proc";
 
 struct CmdInfo {
-    name: &'static str,
+    name: String,
     pss: f32,
     shared: f32,
     heap: f32,
@@ -91,17 +91,18 @@ fn proc_name(pid: i32) -> Result<PathBuf, String> {
     Err("proc_name failed".to_string())
 }
 
-fn cmdinfo_new(pid: i32) -> CmdInfo {
+fn cmdinfo_new(pid: i32) -> Option<CmdInfo> {
 
-    let proc_name = proc_name(pid);
-
-    return CmdInfo{
-	name: "wah",
-	pss: 0.0,
-	shared: 0.0,
-	heap: 0.0,
-	swap: 0.0,
+    if let Ok(proc_name) = proc_name(pid) {
+	return Some(CmdInfo{
+	    name: proc_name.to_string_lossy(),
+	    pss: 0.0,
+	    shared: 0.0,
+	    heap: 0.0,
+	    swap: 0.0,
+	})
     }
+    None
 }
 
 fn cmdinfos_for(pids: Vec<i32>) -> Result<Vec<CmdInfo>, String> {
