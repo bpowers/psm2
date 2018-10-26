@@ -5,6 +5,7 @@
 //extern crate libc;
 //use libc::geteuid;
 
+use std::cmp::{Eq, Ordering};
 use std::fs::{self, File};
 use std::io::{Error, ErrorKind, Read, Result};
 
@@ -17,6 +18,26 @@ struct CmdStat {
     heap: f32,
     swap: f32,
 }
+
+impl PartialEq for CmdStat {
+    fn eq(&self, other: &CmdStat) -> bool {
+        self.name == other.name
+    }
+}
+impl Eq for CmdStat {}
+
+impl PartialOrd for CmdStat {
+    fn partial_cmp(&self, other: &CmdStat) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for CmdStat {
+    fn cmp(&self, other: &CmdStat) -> Ordering {
+        self.name.cmp(&other.name)
+    }
+}
+
 
 #[inline(never)]
 fn is_digit(d: char) -> bool {
@@ -122,12 +143,12 @@ fn main() {
     }
 
     let pids = pids_r.unwrap();
-    // get details of all pids (possibly in parallel)
-    let infos = cmdstats_for(pids);
 
-    // sort pid details
+    let mut stats = cmdstats_for(pids);
 
-    // find total
+    stats.sort_unstable();
+
+    // merge adjacent/find total
 
     // print_results
 }
