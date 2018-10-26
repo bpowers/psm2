@@ -299,7 +299,7 @@ proc_mem(CmdInfo *ci, int pid, size_t details_len, char *details_buf)
 		line[details_len] = '\0';
 
 		// Pss - line 3
-		m = smap_read_int(line, 3);
+		m = smap_read_int(line, 5);
 		ci->pss += m + PSS_ADJUST;
 		// we don't need PSS_ADJUST for heap because
 		// the heap is private and anonymous.
@@ -307,8 +307,8 @@ proc_mem(CmdInfo *ci, int pid, size_t details_len, char *details_buf)
 			ci->heap += m;
 
 		// Private_Clean & Private_Dirty are lines 6 and 7
-		priv += smap_read_int(line, 6);
-		priv += smap_read_int(line, 7);
+		priv += smap_read_int(line, 8);
+		priv += smap_read_int(line, 9);
 
 		ci->swap += smap_read_int(line, 11);
 
@@ -512,10 +512,10 @@ main(int argc, char *const argv[])
 		}
 	}
 
-	if (geteuid() != 0) {
-		die("%s requires root privileges. (try 'sudo `which %s`)\n",
-		    argv0, argv0);
-	}
+	/* if (geteuid() != 0) { */
+	/* 	die("%s requires root privileges. (try 'sudo `which %s`)\n", */
+	/* 	    argv0, argv0); */
+	/* } */
 
 	details_len = smap_details_len();
 

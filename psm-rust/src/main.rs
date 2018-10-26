@@ -2,19 +2,15 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#![feature(str_char)]
-
 //extern crate libc;
 //use libc::geteuid;
 
-use std::fs;
-use std::fs::{File};
-use std::io::{Read, Error, ErrorKind};
-use std::path::{PathBuf};
+use std::fs::{self, File};
+use std::io::{Error, ErrorKind, Read, Result};
 
 const PROC_PATH: &'static str = "/proc";
 
-struct CmdInfo {
+struct CmdStat {
     name: String,
     pss: f32,
     shared: f32,
@@ -28,90 +24,87 @@ fn is_digit(d: char) -> bool {
 }
 
 #[inline(never)]
-fn first_char(name: std::ffi::OsString) -> char {
-    name.to_str().unwrap().char_at(0)
+fn first_char(name: &std::ffi::OsStr) -> char {
+    use std::os::unix::ffi::OsStrExt;
+    name.as_bytes()[0] as char
 }
 
-fn is_dir(md: fs::Metadata) -> Result<fs::Metadata, Error> {
+fn is_dir(md: fs::Metadata) -> Result<fs::Metadata> {
     if md.is_dir() {
-	Ok(md)
+        Ok(md)
     } else {
-	Err(Error::new(ErrorKind::NotFound, "not a directory"))
+        Err(Error::new(ErrorKind::NotFound, "not a directory"))
     }
 }
 
 #[inline(never)]
-fn get_pids() -> Result<Vec<i32>, String> {
-    let dir = fs::read_dir(PROC_PATH);
-    if let Err(err)= dir {
-	return Err(format!("read_dir({}): {}", PROC_PATH, err));
-    }
+fn get_pids() -> Result<Vec<i32>> {
+    let dir = fs::read_dir(PROC_PATH)?;
 
     // TODO: look at filter_map
-    let pids: Vec<i32> = dir.unwrap()
-	.filter(|e| e.is_ok()) // ignore bad dirent results
-	.map(|e| e.unwrap())   // make this a list of dirents
-	.filter(|e| is_digit(first_char(e.file_name())))
-	.filter(|e| fs::metadata(e.path()).and_then(|md| is_dir(md)).is_ok())
-	.map(|e| i32::from_str_radix(e.file_name().to_str().unwrap(), 10).unwrap())
-	.collect();
+    let pids: Vec<i32> = dir
+        .filter(|e| e.is_ok()) // ignore bad dirent results
+        .map(|e| e.unwrap()) // make this a list of dirents
+        .filter(|e| is_digit(first_char(&e.file_name())))
+        .filter(|e| fs::metadata(e.path()).and_then(|md| is_dir(md)).is_ok())
+        .map(|e| i32::from_str_radix(e.file_name().to_str().unwrap(), 10).unwrap())
+        .collect();
 
     Ok(pids)
 }
 
-fn proc_cmdline(pid: i32) -> Result<Vec<u8>, String> {
-    const BUFSIZ: usize = 1024;
-    let mut buf = Vec::with_capacity(BUFSIZ);
+fn proc_cmdline(pid: i32) -> Result<String> {
+    let mut buf = String::new();
     let path = format!("/proc/{}/cmdline", pid);
 
     // TODO: we don't really care about reading all of the
     // cmdline, just the first 1024 chars is enough.
-    let mut f = match File::open(path) {
-	Ok(f) => f,
-	Err(_) => return Err("open failed".to_string())
-    };
+    let mut f = File::open(path)?;
 
+    f.read_to_string(&mut buf)?;
 
-    if f.read_to_end(&mut buf).is_ok() {
-	return Ok(buf)
-    }
-
-    Err("proc_cmdline failed".to_string())
+    Ok(buf)
 }
 
-fn proc_name(pid: i32) -> Result<PathBuf, String> {
+fn proc_name(pid: i32) -> Result<String> {
     let path = format!("/proc/{}/exe", pid);
 
-    if let Ok(full_path) = fs::read_link(path) {
-	if let Ok(cmdline) = proc_cmdline(pid) {
+    let owned_path = fs::read_link(path)?;
+    let full_path = owned_path.to_string_lossy();
+    let cmdline = proc_cmdline(pid)?;
 
-	}
-    }
+    let result = if cmdline.starts_with(&*full_path) {
+        // the basename (last component) of the path
+        owned_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string()
+    } else {
+        cmdline
+    };
 
-    Err("proc_name failed".to_string())
+    Ok(result)
 }
 
-fn cmdinfo_new(pid: i32) -> Option<CmdInfo> {
-
-    if let Ok(proc_name) = proc_name(pid) {
-	return Some(CmdInfo{
-	    name: proc_name.to_string_lossy(),
-	    pss: 0.0,
-	    shared: 0.0,
-	    heap: 0.0,
-	    swap: 0.0,
-	})
+fn cmdstat_new(pid: i32) -> Option<CmdStat> {
+    match proc_name(pid) {
+        Ok(name) => Some(CmdStat {
+            name: name,
+            pss: 0.0,
+            shared: 0.0,
+            heap: 0.0,
+            swap: 0.0,
+        }),
+        Err(_) => None,
     }
-    None
 }
 
-fn cmdinfos_for(pids: Vec<i32>) -> Result<Vec<CmdInfo>, String> {
-
-    Err("not implemented".to_string())
+fn cmdstats_for(pids: Vec<i32>) -> Vec<CmdStat> {
+    pids.into_iter().filter_map(cmdstat_new).collect()
 }
 
 fn main() {
-
     // command line flag parsing
 
     // check euid
@@ -124,19 +117,17 @@ fn main() {
 
     let pids_r = get_pids();
     if let Err(err) = pids_r {
-	println!("get_pids: {}", err);
-	return;
+        println!("get_pids: {}", err);
+        return;
     }
 
     let pids = pids_r.unwrap();
     // get details of all pids (possibly in parallel)
-    let infos = cmdinfos_for(pids);
+    let infos = cmdstats_for(pids);
 
     // sort pid details
 
     // find total
 
     // print_results
-
-    println!("Hello, world!");
 }

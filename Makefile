@@ -14,13 +14,13 @@ config.mk:
 
 .c.o:
 	@echo "  CC    $<"
-	@${CC} -c ${CFLAGS} $<
+	${CC} -c ${CFLAGS} $<
 
 ${OBJ}: config.h config.mk
 
 $(EXE): ${OBJ}
 	@echo "  LD    $@"
-	@${CC} -o $@ ${OBJ} ${LDFLAGS}
+	${CC} -o $@ ${OBJ} ${LDFLAGS}
 
 install: ${EXE}
 	install -c -m 4755 ${EXE} ${PREFIX}/bin/${EXE}
