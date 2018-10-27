@@ -15,11 +15,6 @@ use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Result};
 
 const PROC_PATH: &'static str = "/proc";
 
-const TY_PSS: &'static str = "Pss:";
-const TY_SWAP: &'static str = "Swap:";
-const TY_PRIVATE_CLEAN: &'static str = "Private_Clean:";
-const TY_PRIVATE_DIRTY: &'static str = "Private_Dirty:";
-
 struct CmdStat {
     name: String,
     pid: i32,
@@ -48,8 +43,15 @@ impl CmdStat {
     }
 
     fn collect_memory_usage(&mut self) -> Result<()> {
-        let path = format!("/proc/{}/smaps_rollup", self.pid);
+        const TY_PSS: &'static str = "Pss:";
+        const TY_SWAP: &'static str = "Swap:";
+        const TY_PRIVATE_CLEAN: &'static str = "Private_Clean:";
+        const TY_PRIVATE_DIRTY: &'static str = "Private_Dirty:";
+
+        let path = format!("/proc/{}/smaps", self.pid);
         let file = File::open(path)?;
+
+        let pss_adjust = 0.5;
 
         let mut private: f32 = 0.0;
 
@@ -57,7 +59,7 @@ impl CmdStat {
             let line = line.unwrap();
             if line.starts_with(TY_PSS) {
                 if let Ok(n) = parse_line(&line) {
-                    self.pss += n;
+                    self.pss += n + pss_adjust;
                 }
             } else if line.starts_with(TY_SWAP) {
                 if let Ok(n) = parse_line(&line) {
@@ -217,14 +219,24 @@ fn main() {
 
     // TODO: this could be a single iteration
     let total_pss = stats.iter().fold(0.0, |sum, stat| sum + stat.pss);
-    let total_shared = stats.iter().fold(0.0, |sum, stat| sum + stat.shared);
     let total_swap = stats.iter().fold(0.0, |sum, stat| sum + stat.swap);
 
     for cmd in &stats {
         let swap = "";
-        println!("{:10.1}{:10.1}{:10}\t{} ({})", cmd.pss/1024.0, cmd.shared/1024.0, swap, cmd.name, cmd.count)
+        println!(
+            "{:10.1}{:10.1}{:10}\t{} ({})",
+            cmd.pss / 1024.0,
+            cmd.shared / 1024.0,
+            swap,
+            cmd.name,
+            cmd.count
+        )
     }
 
     // print_results
-    println!("#{:9.1}{:20.1}\tTOTAL USED BY PROCESSES", total_pss/1024.0, total_swap/1024.0);
+    println!(
+        "#{:9.1}{:20.1}\tTOTAL USED BY PROCESSES",
+        total_pss / 1024.0,
+        total_swap / 1024.0
+    );
 }
