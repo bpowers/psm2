@@ -13,8 +13,6 @@ use std::cmp::{Eq, Ordering};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Result};
 
-const PROC_PATH: &str = "/proc";
-
 struct CmdStat {
     name: String,
     pid: i32,
@@ -129,7 +127,7 @@ fn is_dir(md: fs::Metadata) -> Result<fs::Metadata> {
 
 #[inline(never)]
 fn get_pids() -> Result<Vec<i32>> {
-    let dir = fs::read_dir(PROC_PATH)?;
+    let dir = fs::read_dir("/proc")?;
 
     // TODO: look at filter_map
     let pids: Vec<i32> = dir
