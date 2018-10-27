@@ -7,16 +7,76 @@
 
 use std::cmp::{Eq, Ordering};
 use std::fs::{self, File};
-use std::io::{Error, ErrorKind, Read, Result};
+use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Result};
 
 const PROC_PATH: &'static str = "/proc";
 
+const TY_PSS: &'static str = "Pss:";
+const TY_SWAP: &'static str = "Swap:";
+const TY_PRIVATE_CLEAN: &'static str = "Private_Clean:";
+const TY_PRIVATE_DIRTY: &'static str = "Private_Dirty:";
+
 struct CmdStat {
     name: String,
+    pid: i32,
     pss: f32,
     shared: f32,
-    heap: f32,
     swap: f32,
+}
+
+impl CmdStat {
+    fn new(pid: i32) -> Result<CmdStat> {
+        let name = proc_name(pid)?;
+
+        let mut stats = CmdStat {
+            name: name,
+            pid: pid,
+            pss: 0.0,
+            shared: 0.0,
+            swap: 0.0,
+        };
+
+        stats.collect_memory_usage()?;
+
+        Ok(stats)
+    }
+
+    fn collect_memory_usage(&mut self) -> Result<()> {
+        let path = format!("/proc/{}/smaps_rollup", self.pid);
+        let file = File::open(path)?;
+
+        let mut private: f32 = 0.0;
+
+        for line in BufReader::new(file).lines() {
+            let line = line.unwrap();
+            if line.starts_with(TY_PSS) {
+                if let Ok(n) = parse_line(&line) {
+                    self.pss += n;
+                }
+            } else if line.starts_with(TY_SWAP) {
+                if let Ok(n) = parse_line(&line) {
+                    self.swap += n;
+                }
+            } else if line.starts_with(TY_PRIVATE_CLEAN) || line.starts_with(TY_PRIVATE_DIRTY) {
+                if let Ok(n) = parse_line(&line) {
+                    private += n;
+                }
+            }
+        }
+
+        self.shared = self.pss - private;
+
+        Ok(())
+    }
+}
+
+fn parse_line(line: &str) -> Result<f32> {
+    let kbs = &line[16..24];
+    let num: f32 = kbs
+        .trim_start()
+        .parse()
+        .map_err(|_e| Error::new(ErrorKind::Other, "parse error"))?;
+    Ok(num)
 }
 
 impl PartialEq for CmdStat {
@@ -37,7 +97,6 @@ impl Ord for CmdStat {
         self.name.cmp(&other.name)
     }
 }
-
 
 #[inline(never)]
 fn is_digit(d: char) -> bool {
@@ -108,21 +167,10 @@ fn proc_name(pid: i32) -> Result<String> {
     Ok(result)
 }
 
-fn cmdstat_new(pid: i32) -> Option<CmdStat> {
-    match proc_name(pid) {
-        Ok(name) => Some(CmdStat {
-            name: name,
-            pss: 0.0,
-            shared: 0.0,
-            heap: 0.0,
-            swap: 0.0,
-        }),
-        Err(_) => None,
-    }
-}
-
 fn cmdstats_for(pids: Vec<i32>) -> Vec<CmdStat> {
-    pids.into_iter().filter_map(cmdstat_new).collect()
+    pids.into_iter()
+        .filter_map(|pid| CmdStat::new(pid).ok())
+        .collect()
 }
 
 fn main() {
