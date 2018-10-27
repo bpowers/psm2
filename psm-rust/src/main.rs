@@ -13,7 +13,7 @@ use std::cmp::{Eq, Ordering};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Result};
 
-const PROC_PATH: &'static str = "/proc";
+const PROC_PATH: &str = "/proc";
 
 struct CmdStat {
     name: String,
@@ -25,12 +25,12 @@ struct CmdStat {
 }
 
 impl CmdStat {
-    fn new(pid: i32) -> Result<CmdStat> {
+    fn try_new(pid: i32) -> Result<Self> {
         let name = proc_name(pid)?;
 
         let mut stats = CmdStat {
-            name: name,
-            pid: pid,
+            name,
+            pid,
             pss: 0.0,
             shared: 0.0,
             swap: 0.0,
@@ -43,10 +43,10 @@ impl CmdStat {
     }
 
     fn collect_memory_usage(&mut self) -> Result<()> {
-        const TY_PSS: &'static str = "Pss:";
-        const TY_SWAP: &'static str = "Swap:";
-        const TY_PRIVATE_CLEAN: &'static str = "Private_Clean:";
-        const TY_PRIVATE_DIRTY: &'static str = "Private_Dirty:";
+        const TY_PSS: &str = "Pss:";
+        const TY_SWAP: &str = "Swap:";
+        const TY_PRIVATE_CLEAN: &str = "Private_Clean:";
+        const TY_PRIVATE_DIRTY: &str = "Private_Dirty:";
 
         let path = format!("/proc/{}/smaps", self.pid);
         let file = File::open(path)?;
@@ -134,7 +134,7 @@ fn get_pids() -> Result<Vec<i32>> {
         .filter(|e| e.is_ok()) // ignore bad dirent results
         .map(|e| e.unwrap()) // make this a list of dirents
         .filter(|e| is_digit(first_char(&e.file_name())))
-        .filter(|e| fs::metadata(e.path()).and_then(|md| is_dir(md)).is_ok())
+        .filter(|e| fs::metadata(e.path()).and_then(is_dir).is_ok())
         .map(|e| i32::from_str_radix(e.file_name().to_str().unwrap(), 10).unwrap())
         .collect();
 
@@ -177,7 +177,7 @@ fn proc_name(pid: i32) -> Result<String> {
 
 fn cmdstats_for(pids: Vec<i32>) -> Vec<CmdStat> {
     pids.into_iter()
-        .filter_map(|pid| CmdStat::new(pid).ok())
+        .filter_map(|pid| CmdStat::try_new(pid).ok())
         .collect()
 }
 
