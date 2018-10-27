@@ -1,6 +1,10 @@
-// Copyright 2015 Bobby Powers. All rights reserved.
+// Copyright 2018 Bobby Powers. All rights reserved.
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
+
+#![feature(alloc_system)]
+
+extern crate alloc_system;
 
 //extern crate libc;
 //use libc::geteuid;
@@ -22,6 +26,7 @@ struct CmdStat {
     pss: f32,
     shared: f32,
     swap: f32,
+    count: i32, // used when summing up
 }
 
 impl CmdStat {
@@ -34,6 +39,7 @@ impl CmdStat {
             pss: 0.0,
             shared: 0.0,
             swap: 0.0,
+            count: 1,
         };
 
         stats.collect_memory_usage()?;
@@ -196,7 +202,29 @@ fn main() {
 
     stats.sort_unstable();
 
-    // merge adjacent/find total
+    stats.dedup_by(|a, b| {
+        if a.name != b.name {
+            return false;
+        }
+        b.pss += a.pss;
+        b.shared += a.shared;
+        b.swap += a.swap;
+        b.count += 1;
+        true
+    });
+
+    stats.sort_unstable_by(|a, b| a.pss.partial_cmp(&b.pss).unwrap_or(Ordering::Equal));
+
+    // TODO: this could be a single iteration
+    let total_pss = stats.iter().fold(0.0, |sum, stat| sum + stat.pss);
+    let total_shared = stats.iter().fold(0.0, |sum, stat| sum + stat.shared);
+    let total_swap = stats.iter().fold(0.0, |sum, stat| sum + stat.swap);
+
+    for cmd in &stats {
+        let swap = "";
+        println!("{:10.1}{:10.1}{:10}\t{} ({})", cmd.pss/1024.0, cmd.shared/1024.0, swap, cmd.name, cmd.count)
+    }
 
     // print_results
+    println!("#{:9.1}{:20.1}\tTOTAL USED BY PROCESSES", total_pss/1024.0, total_swap/1024.0);
 }
