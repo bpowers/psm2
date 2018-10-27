@@ -182,15 +182,7 @@ fn cmdstats_for(pids: Vec<i32>) -> Vec<CmdStat> {
 }
 
 fn main() {
-    // command line flag parsing
-
-    // check euid
-    // unsafe {
-    // 	let uid = geteuid();
-    // 	if uid != 0 {
-    // 	    println!("we aren't root");
-    // 	}
-    // }
+    // TODO: command line flag parsing
 
     let pids_r = get_pids();
     if let Err(err) = pids_r {
@@ -222,7 +214,11 @@ fn main() {
     let total_swap = stats.iter().fold(0.0, |sum, stat| sum + stat.swap);
 
     for cmd in &stats {
-        let swap = "";
+        let swap = if cmd.swap > 0.0 {
+            format!("{:10.1}", cmd.swap)
+        } else {
+            "".to_string()
+        };
         println!(
             "{:10.1}{:10.1}{:10}\t{} ({})",
             cmd.pss / 1024.0,
