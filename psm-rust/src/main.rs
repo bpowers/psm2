@@ -37,22 +37,33 @@ impl CmdStat {
             count: 1,
         };
 
-        stats.collect_memory_usage()?;
+        // try to use rollups first, fall back to non-rollups otherwise
+        if stats.collect_memory_usage(true).is_err() {
+            stats.collect_memory_usage(false)?;
+        }
 
         Ok(stats)
     }
 
-    fn collect_memory_usage(&mut self) -> Result<()> {
+    fn collect_memory_usage(&mut self, use_rollup: bool) -> Result<()> {
         const TY_PSS: &str = "Pss:";
         const TY_SWAP: &str = "Swap:";
         const TY_PRIVATE_CLEAN: &str = "Private_Clean:";
         const TY_PRIVATE_DIRTY: &str = "Private_Dirty:";
 
-        let path = format!("/proc/{}/smaps_rollup", self.pid);
+        let rollup_suffix = if use_rollup {
+            "_rollup"
+        } else {
+            ""
+        };
+        let path = format!("/proc/{}/smaps{}", self.pid, rollup_suffix);
         let file = File::open(path)?;
 
-        // let pss_adjust = 0.5;
-        let pss_adjust = 0.0;
+        let pss_adjust = if use_rollup {
+            0.5
+        } else {
+            0.0
+        };
 
         let mut private: f32 = 0.0;
 
