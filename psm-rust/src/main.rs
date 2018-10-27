@@ -51,19 +51,11 @@ impl CmdStat {
         const TY_PRIVATE_CLEAN: &str = "Private_Clean:";
         const TY_PRIVATE_DIRTY: &str = "Private_Dirty:";
 
-        let rollup_suffix = if use_rollup {
-            "_rollup"
-        } else {
-            ""
-        };
+        let rollup_suffix = if use_rollup { "_rollup" } else { "" };
         let path = format!("/proc/{}/smaps{}", self.pid, rollup_suffix);
         let file = File::open(path)?;
 
-        let pss_adjust = if use_rollup {
-            0.5
-        } else {
-            0.0
-        };
+        let pss_adjust = if use_rollup { 0.5 } else { 0.0 };
 
         let mut private: f32 = 0.0;
 
@@ -219,10 +211,6 @@ fn main() {
 
     stats.sort_unstable_by(|a, b| a.pss.partial_cmp(&b.pss).unwrap_or(Ordering::Equal));
 
-    // TODO: this could be a single iteration
-    let total_pss = stats.iter().fold(0.0, |sum, stat| sum + stat.pss);
-    let total_swap = stats.iter().fold(0.0, |sum, stat| sum + stat.swap);
-
     for cmd in &stats {
         let swap = if cmd.swap > 0.0 {
             format!("{:10.1}", cmd.swap)
@@ -239,7 +227,9 @@ fn main() {
         )
     }
 
-    // print_results
+    let total_pss = stats.iter().fold(0.0, |sum, stat| sum + stat.pss);
+    let total_swap = stats.iter().fold(0.0, |sum, stat| sum + stat.swap);
+
     println!(
         "#{:9.1}{:20.1}\tTOTAL USED BY PROCESSES",
         total_pss / 1024.0,
