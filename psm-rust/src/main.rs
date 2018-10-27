@@ -48,10 +48,11 @@ impl CmdStat {
         const TY_PRIVATE_CLEAN: &str = "Private_Clean:";
         const TY_PRIVATE_DIRTY: &str = "Private_Dirty:";
 
-        let path = format!("/proc/{}/smaps", self.pid);
+        let path = format!("/proc/{}/smaps_rollup", self.pid);
         let file = File::open(path)?;
 
-        let pss_adjust = 0.5;
+        // let pss_adjust = 0.5;
+        let pss_adjust = 0.0;
 
         let mut private: f32 = 0.0;
 
@@ -106,12 +107,10 @@ impl Ord for CmdStat {
     }
 }
 
-#[inline(never)]
 fn is_digit(d: char) -> bool {
     d >= '0' && d <= '9'
 }
 
-#[inline(never)]
 fn first_char(name: &std::ffi::OsStr) -> char {
     use std::os::unix::ffi::OsStrExt;
     name.as_bytes()[0] as char
