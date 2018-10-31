@@ -13,6 +13,39 @@ use std::cmp::{Eq, Ordering};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Result};
 
+struct Lines {
+    reader: BufReader<File>,
+}
+
+impl Lines {
+    fn new(file: File) -> Lines {
+        Lines {
+            reader: BufReader::new(file),
+        }
+    }
+}
+
+impl Iterator for Lines {
+    type Item = Vec<u8>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut buffer = vec![];
+
+        const NEWLINE: u8 = b'\n';
+
+        match self.reader.read_until(NEWLINE, &mut buffer) {
+            Ok(len) => {
+                if len > 0 {
+                    Some(buffer)
+                } else {
+                    None
+                }
+            }
+            Err(_) => None,
+        }
+    }
+}
+
 struct CmdStat {
     name: String,
     pid: i32,
@@ -36,7 +69,7 @@ impl CmdStat {
         };
 
         // try to use rollups first, fall back to non-rollups otherwise
-        if stats.collect_memory_usage(true).is_err() {
+        if stats.collect_memory_usage(false).is_err() {
             stats.collect_memory_usage(false)?;
         }
 
@@ -44,10 +77,10 @@ impl CmdStat {
     }
 
     fn collect_memory_usage(&mut self, use_rollup: bool) -> Result<()> {
-        const TY_PSS: &str = "Pss:";
-        const TY_SWAP: &str = "Swap:";
-        const TY_PRIVATE_CLEAN: &str = "Private_Clean:";
-        const TY_PRIVATE_DIRTY: &str = "Private_Dirty:";
+        const TY_PSS: &[u8] = b"Pss:";
+        const TY_SWAP: &[u8] = b"Swap:";
+        const TY_PRIVATE_CLEAN: &[u8] = b"Private_Clean:";
+        const TY_PRIVATE_DIRTY: &[u8] = b"Private_Dirty:";
 
         let rollup_suffix = if use_rollup { "_rollup" } else { "" };
         let path = format!("/proc/{}/smaps{}", self.pid, rollup_suffix);
@@ -57,8 +90,7 @@ impl CmdStat {
 
         let mut private: f32 = 0.0;
 
-        for line in BufReader::new(file).lines() {
-            let line = line.unwrap();
+        for line in Lines::new(file) {
             if line.starts_with(TY_PSS) {
                 if let Ok(n) = parse_line(&line) {
                     self.pss += n + pss_adjust;
@@ -80,8 +112,9 @@ impl CmdStat {
     }
 }
 
-fn parse_line(line: &str) -> Result<f32> {
-    let kbs = &line[16..24];
+fn parse_line(line: &[u8]) -> Result<f32> {
+    use std::str;
+    let kbs = unsafe { str::from_utf8_unchecked(&line[16..24]) };
     let num: f32 = kbs
         .trim_start()
         .parse()
