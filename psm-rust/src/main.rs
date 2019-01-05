@@ -4,7 +4,7 @@
 
 #![feature(alloc_system)]
 
-extern crate alloc_system;
+// extern crate alloc_system;
 
 //extern crate libc;
 //use libc::geteuid;
@@ -13,30 +13,33 @@ use std::cmp::{Eq, Ordering};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Error, ErrorKind, Read, Result};
 
-struct Lines {
+struct Lines<'a> {
     reader: BufReader<File>,
+    buffer: &'a mut Vec<u8>,
 }
 
-impl Lines {
-    fn new(file: File) -> Lines {
+impl<'a> Lines<'a> {
+    fn new(file: File, buffer: &'a mut Vec<u8>) -> Lines {
         Lines {
             reader: BufReader::new(file),
+            buffer: buffer,
         }
     }
 }
 
-impl Iterator for Lines {
-    type Item = Vec<u8>;
+impl<'a> Iterator for Lines<'a> {
+    type Item = &'a [u8];
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut buffer = vec![];
-
+    fn next<'b>(&'b mut self) -> Option<Self::Item> {
         const NEWLINE: u8 = b'\n';
 
-        match self.reader.read_until(NEWLINE, &mut buffer) {
+        self.buffer.truncate(0);
+
+        match self.reader.read_until(NEWLINE, &mut self.buffer) {
             Ok(len) => {
                 if len > 0 {
-                    Some(buffer)
+                    let by: &'b [u8] = self.buffer.as_slice();
+                    Some(by)
                 } else {
                     None
                 }
@@ -89,8 +92,9 @@ impl CmdStat {
         let pss_adjust = if use_rollup { 0.5 } else { 0.0 };
 
         let mut private: f32 = 0.0;
+        let mut buffer = vec![];
 
-        for line in Lines::new(file) {
+        for line in Lines::new(file, &mut buffer) {
             if line.starts_with(TY_PSS) {
                 if let Ok(n) = parse_line(&line) {
                     self.pss += n + pss_adjust;
