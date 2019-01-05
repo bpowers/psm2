@@ -2,6 +2,14 @@
 name = "psm"
 version = "0.1.0"
 authors = ["Bobby Powers <bobbypowers@gmail.com>"]
+edition = "2018"
 
 [dependencies]
 # nix = "0.11.0"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+incremental = false
+opt-level = "z"

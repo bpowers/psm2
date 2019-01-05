@@ -2,9 +2,10 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-#![feature(alloc_system)]
+use std::alloc::System;
 
-extern crate alloc_system;
+#[global_allocator]
+static A: System = System;
 
 //extern crate libc;
 //use libc::geteuid;
