@@ -3,3 +3,4 @@ config.h
 config.mk
 psm
 *.o
+/target
